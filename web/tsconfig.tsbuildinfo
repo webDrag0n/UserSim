@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/api.ts","./src/main.tsx","./src/components/statebars.tsx","./src/views/balance.tsx","./src/views/console.tsx","./src/views/dashboard.tsx","./src/views/gantt.tsx","./src/views/panels.tsx","./src/views/trajectory.tsx","./src/views/worldgraph.tsx"],"version":"5.9.3"}
