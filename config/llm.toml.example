@@ -1,0 +1,75 @@
+# ============================================================
+# UserSim · LLM 接入配置
+# 本文件只回答一个问题：模型从哪来。
+#   - provider 端点 / 密钥 / 模型名 / 采样参数
+#   - 各角色（用户 Agent / 助手 Agent / 参考实现）使用哪个 provider
+# 系统行为参数（世界动力学、评估阈值等）请改 config/system.toml。
+#
+# 安全约定：
+#   1. 本文件包含密钥，禁止提交进任何公开仓库（已在 .gitignore）。
+#   2. 所有 api_key 均可用同名环境变量覆盖，优先级高于文件：
+#      例如 USERSIM_OPENAI_API_KEY、USERSIM_MOONSHOT_API_KEY。
+# ============================================================
+
+# 未在 [roles.*] 中显式指定时使用的缺省 provider
+default_provider = "deepseek"
+
+# ------------------------------------------------------------
+# Provider 定义：全部走 OpenAI 兼容协议（/v1/chat/completions）
+# ------------------------------------------------------------
+
+[providers.moonshot]
+base_url    = "https://api.moonshot.cn/v1"
+api_key     = "sk-在此填入你的-Moonshot-Key"
+model       = "kimi-k2-0905-preview"
+temperature = 0.7
+max_tokens  = 4096
+
+[providers.openai]
+base_url    = "https://api.openai.com/v1"
+api_key     = "sk-在此填入你的-OpenAI-Key"
+model       = "gpt-4o"
+temperature = 0.7
+max_tokens  = 4096
+
+[providers.deepseek]
+base_url    = "https://api.deepseek.com/v1"
+api_key     = "sk-在此填入你的-DeepSeek-Key"
+model       = "deepseek-chat"
+temperature = 0.7
+max_tokens  = 4096
+
+# 本地或自建 OpenAI 兼容端点（vLLM / Ollama / LMStudio 等）
+[providers.local]
+base_url    = "http://127.0.0.1:8000/v1"
+api_key     = "not-needed"
+model       = "your-local-model"
+temperature = 0.7
+max_tokens  = 4096
+
+# ------------------------------------------------------------
+# 角色绑定：谁用哪个 provider（model/temperature 可在此覆盖）
+# ------------------------------------------------------------
+
+# 用户模拟 Agent（世界侧唯一的 LLM 之一）
+[roles.user_agent]
+provider = "deepseek"
+
+# 助手 Agent（被测件；评测矩阵 E1 中在此换 Model）
+[roles.assistant_agent]
+provider = "deepseek"
+
+# 参考用户实现（评测矩阵 E1/E2 中冻结不动的参照）
+[roles.reference_user]
+provider = "deepseek"
+temperature = 0.3   # 参考实现建议低温，降低对照实验方差
+
+# ------------------------------------------------------------
+# 调用运行时
+# ------------------------------------------------------------
+
+[runtime]
+timeout_s    = 60     # 单次请求超时
+max_retries  = 3      # 失败重试（指数退避）
+concurrency  = 4      # 多 episode 并行时的 LLM 并发上限
+log_prompts  = false  # 是否在运行日志中保存完整 prompt（调试用，体积大）
