@@ -12,12 +12,25 @@ def _cfg():
 
 
 def test_same_seed_same_trajectory(tmp_path):
-    """同 seed 两次规则回放，slots.jsonl 逐字节相同。"""
+    """同 seed 两次规则回放，轨迹逐字节相同。
+
+    必须显式指定不同 run_id：默认 run_id 含秒级时间戳，两次快速运行会落到
+    同一目录，导致该断言变成"文件与自己比较"而恒真。
+    """
     cfg = _cfg()
-    d1 = run_replay(seed=7, days=10, quality="good", cfg=cfg, out_root=tmp_path)
-    d2 = run_replay(seed=7, days=10, quality="good", cfg=cfg, out_root=tmp_path)
+    d1 = run_replay(seed=7, days=10, quality="good", cfg=cfg, out_root=tmp_path, run_id="det_a")
+    d2 = run_replay(seed=7, days=10, quality="good", cfg=cfg, out_root=tmp_path, run_id="det_b")
+    assert d1 != d2
     assert (d1 / "slots.jsonl").read_bytes() == (d2 / "slots.jsonl").read_bytes()
-    assert (d1 / "turns.jsonl").read_bytes() == (d2 / "turns.jsonl").read_bytes()
+
+    # turns.jsonl 含 run_id 字段，需归一化后比较其余内容
+    def _norm(p):
+        return [
+            {k: v for k, v in json.loads(line).items() if k != "run_id"}
+            for line in (p / "turns.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()
+        ]
+
+    assert _norm(d1) == _norm(d2)
 
 
 def test_state_always_bounded():

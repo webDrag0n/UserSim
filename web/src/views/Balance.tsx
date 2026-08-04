@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Card, Badge } from '../components/StateBars'
+import { PlainCard as Card, Badge, Segmented } from '../components/ui'
+import { cssVar } from '../components/theme'
 
 // 配表编辑器：查看/编辑所有事件与需求参数、效果、边际效益函数（Excel 单一数据源）
 
@@ -25,7 +26,7 @@ function habW(dt: number, wMin: number, tau: number, curve: string): number {
   return 1 - (1 - wMin) * c
 }
 
-function CurvePreview({ wMin, tau, curve, color = '#22d3ee' }: { wMin: number; tau: number; curve: string; color?: string }) {
+function CurvePreview({ wMin, tau, curve }: { wMin: number; tau: number; curve: string }) {
   const W = 120, H = 36
   const maxT = Math.max(4, tau * 3)
   const pts = Array.from({ length: 41 }, (_, i) => {
@@ -36,8 +37,8 @@ function CurvePreview({ wMin, tau, curve, color = '#22d3ee' }: { wMin: number; t
   }).join(' ')
   return (
     <svg width={W} height={H} className="inline-block align-middle">
-      <line x1="0" y1={H - wMin * H} x2={W} y2={H - wMin * H} stroke="rgba(255,255,255,0.15)" strokeDasharray="3 3" />
-      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" />
+      <line x1="0" y1={H - wMin * H} x2={W} y2={H - wMin * H} stroke="var(--axis)" strokeDasharray="3 3" />
+      <polyline points={pts} fill="none" stroke={cssVar('--accent')} strokeWidth="1.5" />
     </svg>
   )
 }
@@ -55,7 +56,7 @@ function UrgePreview({ kind }: { kind: string }) {
   }).join(' ')
   return (
     <svg width={W} height={H} className="inline-block align-middle">
-      <polyline points={pts} fill="none" stroke="#a78bfa" strokeWidth="1.5" />
+      <polyline points={pts} fill="none" stroke={cssVar('--persona')} strokeWidth="1.5" />
     </svg>
   )
 }
@@ -66,7 +67,7 @@ function EditableCell({ value, onSave }: { value: any; onSave: (v: string) => vo
   if (!editing) {
     return (
       <span onClick={() => { setV(String(value ?? '')); setEditing(true) }}
-        className="cursor-text rounded px-1 -mx-1 hover:bg-cyan-400/10 hover:text-cyan-200 transition-colors"
+        className="cursor-text rounded px-1 -mx-1 hover:bg-[color-mix(in_srgb,var(--accent)_10%,transparent)] hover:text-[var(--accent)] transition-colors"
         title="点击编辑">
         {value === null || value === '' ? '—' : String(value)}
       </span>
@@ -76,7 +77,7 @@ function EditableCell({ value, onSave }: { value: any; onSave: (v: string) => vo
     <input autoFocus value={v} onChange={(e) => setV(e.target.value)}
       onBlur={() => { setEditing(false); if (v !== String(value ?? '')) onSave(v) }}
       onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEditing(false) }}
-      className="w-full min-w-[60px] rounded bg-cyan-400/10 border border-cyan-400/50 px-1 text-inherit outline-none font-num" />
+      className="w-full min-w-[60px] rounded bg-[color-mix(in_srgb,var(--accent)_10%,transparent)] border border-[color-mix(in_srgb,var(--accent)_50%,transparent)] px-1 text-inherit outline-none font-num" />
   )
 }
 
@@ -108,20 +109,17 @@ export default function BalancePage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3 flex-wrap">
-        <h2 className="text-lg font-bold text-white">配表编辑器</h2>
-        <Badge label={data?.source === 'excel' ? '数据源：Excel 实时生效' : '数据源：代码默认'} color={data?.source === 'excel' ? '#34d399' : '#fbbf24'} />
-        {savedAt && <span className="text-[11px] text-emerald-400">✓ 已保存并热加载 {savedAt}</span>}
-        <span className="text-[11px] text-zinc-500">balance-sheet/UserSim数值配表.xlsx · 点击单元格直接编辑，回车保存</span>
+        <h2 className="text-lg font-bold text-t1 display">配表编辑器</h2>
+        <Badge label={data?.source === 'excel' ? '数据源：Excel 实时生效' : '数据源：代码默认'} color={data?.source === 'excel' ? cssVar('--good') : cssVar('--warning')} />
+        {savedAt && <span className="text-[11px] text-[var(--good)]">✓ 已保存并热加载 {savedAt}</span>}
+        <span className="text-[11px] text-t3">balance-sheet/UserSim数值配表.xlsx · 点击单元格直接编辑，回车保存</span>
       </div>
 
-      <div className="flex gap-2 flex-wrap">
-        {sheets.map((s) => (
-          <button key={s.name} onClick={() => setTab(s.name)}
-            className={`rounded-lg px-3 py-1.5 text-xs transition-colors ${tab === s.name ? 'bg-white/10 text-white font-semibold' : 'text-zinc-400 hover:text-zinc-200'}`}>
-            {s.name}
-          </button>
-        ))}
-      </div>
+      {sheets.length > 0 && (
+        <div className="overflow-x-auto">
+          <Segmented value={tab} options={sheets.map((s) => [s.name, s.name] as const)} onChange={setTab} />
+        </div>
+      )}
 
       {cur && (
         <Card className="p-4 overflow-x-auto">
@@ -129,19 +127,19 @@ export default function BalancePage() {
             <thead>
               <tr>
                 {cur.headers.map((h, i) => (
-                  <th key={i} className="text-left text-zinc-500 font-medium border-b border-white/10 px-2 py-1.5 whitespace-nowrap">
+                  <th key={i} className="text-left text-t3 font-medium border-b border-edge px-2 py-1.5 whitespace-nowrap">
                     {h}{tab === '习惯化曲线' && i === cur.headers.length ? ' · 曲线' : ''}
                   </th>
                 ))}
-                {tab === '习惯化曲线' && <th className="text-left text-zinc-500 font-medium border-b border-white/10 px-2 py-1.5">w(Δt) 预览</th>}
-                {tab === '需求参数' && <th className="text-left text-zinc-500 font-medium border-b border-white/10 px-2 py-1.5">u(x) 预览</th>}
+                {tab === '习惯化曲线' && <th className="text-left text-t3 font-medium border-b border-edge px-2 py-1.5">w(Δt) 预览</th>}
+                {tab === '需求参数' && <th className="text-left text-t3 font-medium border-b border-edge px-2 py-1.5">u(x) 预览</th>}
               </tr>
             </thead>
             <tbody>
               {contentRows.map(({ rowNum, cells }) => (
-                <tr key={rowNum} className="border-b border-white/5 hover:bg-white/[0.02]">
+                <tr key={rowNum} className="border-b border-edge hover:bg-[var(--hover)]">
                   {cells.map((v, ci) => (
-                    <td key={ci} className="px-2 py-1.5 text-zinc-300 whitespace-nowrap max-w-[260px] truncate">
+                    <td key={ci} className="px-2 py-1.5 text-t2 whitespace-nowrap max-w-[260px] truncate">
                       <EditableCell value={v} onSave={(nv) => save(cur.name, rowNum, ci + 1, nv)} />
                     </td>
                   ))}
@@ -161,9 +159,9 @@ export default function BalancePage() {
       )}
 
       {tab === '需求参数' && (
-        <Card className="p-4 text-[11px] text-zinc-400 leading-relaxed">
-          <span className="text-zinc-200 font-semibold">认知动力学曲线说明：</span>
-          饥饿 u=((1-x)/0.6)^1.5（越饿越急）；社交 u=x²；<span className="text-violet-300">刺激 u=1-(2x-1)² 为倒 U</span>（太少无聊、太多过载，曲线顶点在中等刺激）；成就 u=x^2.5（deadline 后期陡增）。
+        <Card className="p-4 text-[11px] text-t2 leading-relaxed">
+          <span className="text-t1 font-semibold">认知动力学曲线说明：</span>
+          饥饿 u=((1-x)/0.6)^1.5（越饿越急）；社交 u=x²；<span className="text-[var(--persona)]">刺激 u=1-(2x-1)² 为倒 U</span>（太少无聊、太多过载，曲线顶点在中等刺激）；成就 u=x^2.5（deadline 后期陡增）。
         </Card>
       )}
     </div>

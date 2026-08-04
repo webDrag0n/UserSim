@@ -1,10 +1,40 @@
 // API 与类型
 export interface StateVec { valence: number; energy: number; satiety: number; stress: number }
+
+// 结构化喜好（角色卡真值，冻结）
+export interface Preferences {
+  categories: Record<string, number>
+  loves: string[]; hates: string[]
+  interruption_tolerance: number
+  planning_style: string
+  social_recharge: string
+}
+// 助手对冻结维度（人格 + 喜好）的累积估计
+export interface PersonaBelief {
+  facets: Record<string, number>
+  categories: Record<string, number>
+  loves: string[]; hates: string[]
+  interruption_tolerance: number | null
+  planning_style: string | null
+  social_recharge: string | null
+  confidence: number
+  notes: string
+}
+export interface Persona {
+  name: string; archetype: string
+  big5: Record<string, number>
+  facets: Record<string, number>
+  likes: string
+  prefs: Preferences
+  routine: string; income_per_slot: number
+}
 export interface Turn {
   run_id: string; t_logical: number; session_id: string | null; turn_id: number
   speaker: 'user' | 'assistant' | 'system'; text: string
   tool_calls: { name: string; args: any }[]; tool_results: { name: string; ok: boolean; payload: any }[]
   x_true: StateVec; x_hat: StateVec | null
+  persona_hat?: PersonaBelief | null
+  felt_state?: string | null
 }
 export interface Slot {
   t_logical: number; x_before: StateVec; x_after: StateVec
@@ -33,7 +63,41 @@ export interface Report {
   est_err_final: number; est_err_slope_per_day: number
   daily_est_err: { day: number; err: number }[]; daily_err: { day: number; e: number }[]
   verdict: string; verdict_label: string; run_id: string; mode?: string; assistant_quality?: string
+  // 画像精度（冻结维度）
+  persona_err_final: number; persona_err_slope_per_day: number; persona_coverage: number
+  prefs_err_final: number; prefs_tag_f1: number
+  daily_persona_err: { day: number; err: number }[]
 }
+export interface MetricStat { n: number; mean: number | null; std: number | null; ci95: number | null; lo: number | null; hi: number | null }
+export interface BenchGroup {
+  n: number
+  metrics: Record<string, MetricStat>
+  verdict_share: Record<string, number>
+  verdict_mode: string
+  never_settled: number
+}
+export interface BenchAggregate {
+  bench_id: string; mode: string; days: number; seeds: number[]
+  n_episodes: number
+  groups: Record<string, BenchGroup>
+  artifact_hashes?: Record<string, string>
+}
+export interface Discriminability {
+  thresholds: { diverged_ess_min: number; converged_ess_max: number }
+  ess_good_mean: number | null; ess_poor_mean: number | null
+  margin_poor: number | null; margin_good: number | null; separation: number | null
+  checks: Record<string, boolean>; ok: boolean
+}
+export interface BenchEpisode {
+  group: string; seed: number; archetype: string | null; label: string; run_id: string
+  metrics: Record<string, any>
+}
+export interface BenchListItem {
+  bench_id: string; mode: string; days: number; n_episodes: number
+  groups: string[]; has_guard: boolean
+}
+export interface BenchJob { bench_id: string; status: string; done: number; total: number; error: string | null }
+
 export interface Catalog {
   professions: { archetype: string; income_per_slot: number; note: string }[]
   recovery_actions: { id: string; action: string; category: string; variants: { vid: string; location: string; tier: string; cost: number; span: number }[] }[]
@@ -44,7 +108,7 @@ export interface Catalog {
 const j = (r: Response) => r.json()
 export const api = {
   listRuns: (): Promise<{ runs: RunItem[] }> => fetch('/api/runs').then(j),
-  startRun: (body: { mode: string; seed: number; days: number; quality: string; archetype?: string | null }) =>
+  startRun: (body: { mode: string; seed: number; days: number; quality: string; archetype?: string | null; harness?: string | null }) =>
     fetch('/api/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(j),
   continueRun: (id: string, extraDays: number) =>
     fetch(`/api/runs/${id}/continue`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ extra_days: extraDays }) }).then(j),
@@ -59,24 +123,17 @@ export const api = {
   insights: (id: string): Promise<{ findings: { severity: string; category: string; title: string; detail: string; evidence: string }[]; stats: Record<string, any> }> =>
     fetch(`/api/runs/${id}/insights`).then(j),
   catalog: (): Promise<Catalog> => fetch('/api/catalog').then(j),
+  harnesses: (): Promise<{ items: { name: string; doc: string }[]; default: string }> =>
+    fetch('/api/harnesses').then(j),
+  listBench: (): Promise<{ items: BenchListItem[]; jobs: BenchJob[] }> => fetch('/api/bench').then(j),
+  benchDetail: (id: string): Promise<{ aggregate?: BenchAggregate; discriminability?: Discriminability; episodes?: BenchEpisode[]; job?: BenchJob; pending?: boolean }> =>
+    fetch(`/api/bench/${id}`).then(j),
+  startBench: (body: { seeds: string; days: number; mode: string; groups?: string[]; max_episodes?: number }) =>
+    fetch('/api/bench', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(j),
 }
 
-export const DIMS = [
-  { key: 'valence' as const, label: '心情', target: 0.72, color: '#34d399', good: 'high' as const },
-  { key: 'energy' as const, label: '精力', target: 0.70, color: '#38bdf8', good: 'high' as const },
-  { key: 'satiety' as const, label: '饱腹', target: 0.65, color: '#fbbf24', good: 'high' as const },
-  { key: 'stress' as const, label: '压力', target: 0.30, color: '#f87171', good: 'low' as const },
-]
-export const BAND = 0.10
-export const VERDICTS: Record<string, { label: string; color: string }> = {
-  converged: { label: '收敛稳定', color: '#34d399' },
-  oscillating: { label: '欠阻尼振荡', color: '#fbbf24' },
-  diverged: { label: '发散失控', color: '#f87171' },
-}
-export const KIND_META: Record<string, { label: string; color: string }> = {
-  template: { label: '模板', color: '#38bdf8' },
-  disturbance: { label: '扰动', color: '#f87171' },
-  recovery: { label: '恢复', color: '#34d399' },
-  series: { label: '系列', color: '#f472b6' },
-}
-export const SLOT_NAMES = ['上午', '下午', '晚上', '深夜']
+// 领域常量（DIMS / BAND / VERDICTS / KIND_META / SLOT_NAMES / BIG5_FACETS / PREF_CATEGORIES）
+// 迁移到 components/theme.ts（配色改为随主题的 CSS 变量）。此处 re-export 保持旧 import 兼容。
+export {
+  DIMS, BAND, VERDICTS, KIND_META, SLOT_NAMES, BIG5_FACETS, PREF_CATEGORIES,
+} from './components/theme'

@@ -5,8 +5,19 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from usersim.contracts import SlotSettlement, StateVec, TurnRecord
-from usersim.world.dynamics import DIMS, dim_error, total_error
+from usersim.contracts import (
+    DIMS,
+    Persona,
+    SlotSettlement,
+    StateVec,
+    TurnRecord,
+    dim_error,
+    facet_coverage,
+    facet_error,
+    prefs_error,
+    tag_hit_rate,
+    total_error,
+)
 
 
 def load_run(run_dir: Path) -> tuple[list[SlotSettlement], list[TurnRecord], dict]:
@@ -23,6 +34,7 @@ def compute_metrics(
     targets: dict[str, float],
     band: float,
     eval_cfg,
+    persona: dict | Persona | None = None,
 ) -> dict:
     xs = [s.x_after for s in slots]
     n = len(xs)
@@ -76,9 +88,13 @@ def compute_metrics(
         elif hot > 0:
             overshoot = max(overshoot, max(0.0, targets["stress"] - x.stress))
 
-    # 带内驻留比（后 10 天）
-    tail_pts = xs[-10 * slots_per_day:]
+    # 带内驻留比（后 window_days 天）
+    window_days = int(getattr(eval_cfg, "window_days", 10) or 10)
+    tail_pts = xs[-window_days * slots_per_day:]
     in_band_ratio = sum(1 for x in tail_pts if in_band(x)) / len(tail_pts) if tail_pts else float("nan")
+
+    # 滑动窗口指标序列（docs/04 第 4 节：无限延展的 run 用滑窗做健康监控）
+    windows = _sliding_windows(xs, targets, band, slots_per_day, window_days, in_band)
 
     # 估计误差学习曲线（每日 mean ‖x−x̂‖₂）
     daily_est_err = _daily_est_err(turns, slots_per_day)
@@ -98,7 +114,11 @@ def compute_metrics(
 
     verdict = _verdict(ess, settling_time, overshoot, worsening, eval_cfg)
 
+    # 画像精度（冻结维度：人格 30 facet + 结构化喜好）
+    profile = _profile_metrics(turns, persona, slots_per_day)
+
     return {
+        **profile,
         "ess": ess,
         "settling_time_days": settling_time,
         "overshoot": overshoot,
@@ -107,6 +127,8 @@ def compute_metrics(
         "itae": itae,
         "variance": variance,
         "in_band_ratio": in_band_ratio,
+        "window_days": window_days,
+        "windows": windows,
         "est_err_final": est_err_final,
         "est_err_slope_per_day": est_err_slope,
         "daily_est_err": [{"day": d, "err": e} for d, e in daily_est_err],
@@ -115,9 +137,99 @@ def compute_metrics(
     }
 
 
+def _profile_metrics(turns: list[TurnRecord], persona, slots_per_day: int) -> dict:
+    """画像精度：人格 facet 误差 + 喜好类目误差 + loves/hates 命中率（含学习曲线）。
+
+    真值来自 meta.json 的角色卡（冻结维度）；估计来自每个助手 turn 落盘的
+    `persona_hat`。**没有估计的 turn 不参与**——不作为不能等于零误差，覆盖率
+    单独报告（`persona_coverage`）。
+
+    返回全 None 表示本 run 没有任何画像估计（如 stub 下界锚点、或旧日志）。
+    """
+    empty = {
+        "persona_err_final": float("nan"), "persona_err_slope_per_day": 0.0,
+        "persona_coverage": 0.0, "prefs_err_final": float("nan"),
+        "prefs_tag_f1": float("nan"), "daily_persona_err": [],
+    }
+    if persona is None:
+        return empty
+    p = persona if isinstance(persona, dict) else persona.model_dump()
+    true_facets = {k: int(v) for k, v in (p.get("facets") or {}).items()}
+    true_prefs = p.get("prefs") or {}
+    true_cats = {k: float(v) for k, v in (true_prefs.get("categories") or {}).items()}
+    true_loves = list(true_prefs.get("loves") or [])
+    true_hates = list(true_prefs.get("hates") or [])
+    if not true_facets and not true_cats:
+        return empty  # 旧存档没有冻结维度真值，无法评分
+
+    hats = [t for t in turns if t.persona_hat is not None]
+    if not hats:
+        return empty
+
+    by_day: dict[int, list[float]] = {}
+    for t in hats:
+        err = facet_error(true_facets, t.persona_hat.facets)
+        if err is not None:
+            by_day.setdefault(t.t_logical // slots_per_day, []).append(err)
+    daily = sorted((d, sum(v) / len(v)) for d, v in by_day.items())
+
+    last = hats[-1].persona_hat
+    return {
+        "persona_err_final": daily[-1][1] if daily else float("nan"),
+        "persona_err_slope_per_day": (
+            _slope([d for d, _ in daily], [e for _, e in daily]) if len(daily) > 1 else 0.0),
+        "persona_coverage": round(facet_coverage(last.facets), 3),
+        "prefs_err_final": _nan(prefs_error(true_cats, last.categories)),
+        "prefs_tag_f1": _nan(_tag_f1(true_loves, true_hates, last)),
+        "daily_persona_err": [{"day": d, "err": round(e, 4)} for d, e in daily],
+    }
+
+
+def _tag_f1(true_loves: list[str], true_hates: list[str], hat) -> float | None:
+    """loves 与 hates 的 F1 均值（两者都有真值时取均值，否则取存在的那个）。"""
+    scores = [s for s in (tag_hit_rate(true_loves, hat.loves),
+                          tag_hit_rate(true_hates, hat.hates)) if s is not None]
+    return sum(scores) / len(scores) if scores else None
+
+
+def _nan(v: float | None) -> float:
+    return float("nan") if v is None else float(v)
+
+
 def _infer_slots_per_day(slots: list[SlotSettlement], eval_cfg) -> int:
-    # slots.jsonl 不存 spd；与 run 配置一致（本系统固定 4）。优先从 t 序列推断最大值+1。
-    return 4
+    """从结算单读取时钟刻度（world 写入）；旧日志缺省 4。
+
+    此前这里硬编码 return 4——改 [clock].slots_per_day 会让所有按天归一的指标
+    静默算错（IAE/ITAE/调节时间/学习曲线）。
+    """
+    if slots:
+        spd = getattr(slots[0], "slots_per_day", 0) or 0
+        if spd > 0:
+            return int(spd)
+    return int(getattr(eval_cfg, "slots_per_day", 4) or 4)
+
+
+def _sliding_windows(xs: list[StateVec], targets: dict[str, float], band: float,
+                     slots_per_day: int, window_days: int, in_band) -> list[dict]:
+    """按 window_days 逐日滑动输出窗口指标（长 run 的健康监控曲线）。
+
+    此前 [eval].window_days 是死配置——文档承诺了滑窗结算但从未实现。
+    """
+    win = window_days * slots_per_day
+    if win <= 0 or len(xs) < win:
+        return []
+    out: list[dict] = []
+    for start in range(0, len(xs) - win + 1, slots_per_day):
+        chunk = xs[start:start + win]
+        errs = [total_error(x, targets) for x in chunk]
+        out.append({
+            "start_day": start // slots_per_day,
+            "end_day": (start + win) // slots_per_day,
+            "mean_err": sum(errs) / len(errs),
+            "max_err": max(errs),
+            "in_band_ratio": sum(1 for x in chunk if in_band(x)) / len(chunk),
+        })
+    return out
 
 
 def _daily_est_err(turns: list[TurnRecord], slots_per_day: int) -> list[tuple[int, float]]:

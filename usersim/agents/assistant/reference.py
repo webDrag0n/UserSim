@@ -8,10 +8,23 @@ from __future__ import annotations
 
 from pydantic import ValidationError
 
-from usersim.contracts import AssistantTurn, Event, ToolCall, ToolResult, UserBelief
+from usersim.agents.assistant.profile import ProfileTracker
+from usersim.contracts import AssistantTurn, HarnessObs, UserBelief
+from usersim.contracts.persona import BIG5_DOMAINS, FACET_HINTS, PREF_CATEGORIES, facet_keys_of
 from usersim.llm import LLMClient
 
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"  # v2：新增冻结维度（人格 30 facet + 结构化喜好）增量估计
+
+
+def _facet_menu() -> str:
+    """可估计的 facet 清单（含语义），按域分组——助手必须用这些确切的键名。"""
+    lines = []
+    for domain in BIG5_DOMAINS:
+        items = "、".join(
+            f"{k}（{FACET_HINTS.get(k, '')}）" for k in facet_keys_of(domain)
+        )
+        lines.append(f"· {items}")
+    return "\n".join(lines)
 
 SYS_TEMPLATE = """你是一个人的手机助手，名字叫"小舟"。你的目标是长期陪伴用户，帮助 TA 在忙碌生活中回到并保持"内心平和"（情绪平稳、精力充足、压力可控）。
 
@@ -34,10 +47,34 @@ SYS_TEMPLATE = """你是一个人的手机助手，名字叫"小舟"。你的目
     "energy": 0.0~1.0（精力）,
     "satiety": 0.0~1.0（饱腹）,
     "stress": 0.0~1.0（压力，越高越糟）,
-    "persona_notes": "你对用户性格/喜好的最新认识（可沿用之前的，逐步积累）"
+    "persona_notes": "你对用户性格/喜好的最新认识（一两句话，逐步积累）",
+    "persona_belief": {{
+      "facets": {{ "神经质.焦虑": 0~100, ... }},   // 只填本轮**有新证据**的特质，可为空
+      "categories": {{ "饮食": -1.0~1.0, ... }},   // 只填本轮有新证据的活动类目
+      "loves": ["用户明确表达过喜欢的具体事物"],
+      "hates": ["用户明确表达过讨厌的"],
+      "interruption_tolerance": 0.0~1.0,          // 越低越讨厌计划被打断（可省略）
+      "planning_style": "提前规划|随遇而安|看心情",  // 可省略
+      "social_recharge": "独处|找人",               // 状态差时怎么回血（可省略）
+      "confidence": 0.0~1.0                        // 你对当前画像的整体信心
+    }}
   }},
   "tool_calls": [ {{"name": "工具名", "args": {{...}}}} ]   // 可为空数组
 }}
+
+【冻结维度画像（重要考点：你对 TA 的人格与喜好判断得有多准）】
+用户的人格与喜好是**固定不变**的，你的任务是从对话里逐步把它们摸清楚。
+- `persona_belief` 是**增量**：本轮没听出新东西的项就**不要填**（留空比瞎猜更好，
+  系统会保留你之前的判断）。**不要每轮把 30 项都重报一遍**。
+- 分值刻度：0-100，50 = 中等。>65 算明显偏高，<35 算明显偏低。
+- 判断依据只能是用户的言行：说"又在担心明天汇报" → 神经质.焦虑 偏高；
+  说"周末必须留一天给自己" → 外向性.群居性 偏低；
+  推荐饭局被拒 → 社交 类目偏负、可能有"应酬"这个 hates。
+- 可用的特质键名（必须**逐字**使用，写错的会被丢弃）：
+{facet_menu}
+- 可用的活动类目：{pref_cats}
+- 画像会**影响你的建议质量**：安排用户偏爱的类目效果更好，安排 TA 讨厌的事回血打折。
+  所以摸清喜好不是附加题——它直接决定你能不能把 TA 拉回平和带。
 
 【日程工具参数】add_event_todo: {{"name": "动作名", "location": "地点（可选）", "day_offset": 0或1, "slot": 0上午/1下午/2晚上/3深夜, "goal": "目标"}}
 
@@ -77,39 +114,38 @@ USER_TEMPLATE = """{history_block}
 请输出本轮 JSON。"""
 
 
-def _history_str(history: list[dict]) -> str:
+def _history_str(history) -> str:
+    """history: list[DialogueTurn]。"""
     if not history:
         return "（对话刚开始）"
     lines = []
     for h in history[-12:]:
-        who = "用户" if h["speaker"] == "user" else "你"
-        lines.append(f"{who}：{h['text']}")
+        who = "用户" if h.speaker == "user" else "你"
+        lines.append(f"{who}：{h.text}")
     return "\n".join(lines)
 
 
 class ReferenceHarness:
-    """on_turn(history, tool_results, schedule) -> AssistantTurn"""
+    """参考 Harness：naive memory + 每轮必填 user_belief（benchmark 及格线）。"""
 
     def __init__(self, client: LLMClient):
         self.client = client
         self.profile_notes: str = "（还没有积累对用户的认识）"
+        self.profile = ProfileTracker()  # 跨 session 累积的人格/喜好信念
 
-    def on_turn(
-        self,
-        history: list[dict],
-        user_say: str,
-        tool_results: list[ToolResult] | None = None,
-        balance: float | None = None,
-        schedule_hint: str = "",
-    ) -> AssistantTurn:
-        sys = SYS_TEMPLATE.format(profile_block=f"【你目前对用户的了解】{self.profile_notes}")
-        tr = "; ".join(f"{t.name}: {'成功' if t.ok else '失败'}" for t in (tool_results or [])) or "无"
+    def on_turn(self, obs: HarnessObs) -> AssistantTurn:
+        sys = SYS_TEMPLATE.format(
+            profile_block=f"【你目前对用户的了解】\n{self.profile.prompt_block()}",
+            facet_menu=_facet_menu(),
+            pref_cats="、".join(PREF_CATEGORIES),
+        )
+        tr = "; ".join(f"{t.name}: {'成功' if t.ok else '失败'}" for t in obs.tool_results) or "无"
         messages = [
             {"role": "system", "content": sys},
             {"role": "user", "content": USER_TEMPLATE.format(
-                history_block=_history_str(history), tool_results=tr, user_say=user_say,
-                balance=f"¥{balance:.0f}" if balance is not None else "未知",
-                schedule_hint=schedule_hint or "（今天还没有安排）")},
+                history_block=_history_str(obs.history), tool_results=tr, user_say=obs.user_say,
+                balance=f"¥{obs.balance:.0f}" if obs.balance is not None else "未知",
+                schedule_hint=obs.schedule_hint or "（今天还没有安排）")},
         ]
         raw = self.client.chat_json(messages, max_tokens=512)
         try:
@@ -122,7 +158,29 @@ class ReferenceHarness:
 
         if turn.user_belief.persona_notes:
             self.profile_notes = turn.user_belief.persona_notes
+        # 冻结维度信念：合并本轮增量（notes 也并入，供下一轮 prompt 使用）
+        delta = turn.user_belief.persona_belief
+        if delta is not None:
+            if not delta.notes and turn.user_belief.persona_notes:
+                delta = delta.model_copy(update={"notes": turn.user_belief.persona_notes})
+            self.profile.update(delta)
+        elif turn.user_belief.persona_notes:
+            self.profile.notes = turn.user_belief.persona_notes
         return turn
+
+    def persona_belief(self):
+        """当前累积的人格/喜好信念（Runner 每轮取此快照落盘）。"""
+        return self.profile.to_belief()
+
+    # ---- 记忆快照（续跑支持；替代 Runner 侧的 harness_notes 专用分支）----
+    def snapshot(self) -> dict:
+        return {"profile_notes": self.profile_notes, "persona_belief": self.profile.snapshot()}
+
+    def restore(self, state: dict) -> None:
+        notes = state.get("profile_notes")
+        if notes:
+            self.profile_notes = str(notes)
+        self.profile.restore(state.get("persona_belief") or {})
 
 
 def belief_from_dict(d: dict) -> UserBelief:

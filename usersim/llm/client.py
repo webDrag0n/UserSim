@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from pathlib import Path
 
 from openai import OpenAI
 
@@ -39,6 +40,27 @@ class LLMClient:
             timeout=float(runtime.get("timeout_s", 60)),
         )
         self.max_retries = int(runtime.get("max_retries", 3))
+        # [runtime].log_prompts：调试用完整 prompt 落盘（体积大，默认关）
+        self.log_prompts = bool(runtime.get("log_prompts", False))
+        self._log_path: Path | None = None
+
+    def set_log_dir(self, run_dir: Path) -> None:
+        """由 Runner 指定 prompt 日志位置（仅 log_prompts=true 时生效）。"""
+        if self.log_prompts:
+            self._log_path = run_dir / "prompts.jsonl"
+
+    def _log(self, messages: list[dict], content: str) -> None:
+        if not self.log_prompts or self._log_path is None:
+            return
+        rec = {
+            "ts": time.time(),
+            "role": getattr(self.role, "provider", "?"),
+            "model": self.role.model,
+            "messages": messages,
+            "response": content,
+        }
+        with self._log_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
     def chat_json(self, messages: list[dict], max_tokens: int | None = None) -> dict:
         """JSON 模式调用，带指数退避重试；返回解析后的 dict。"""
@@ -53,6 +75,7 @@ class LLMClient:
                     response_format={"type": "json_object"},
                 )
                 content = resp.choices[0].message.content or ""
+                self._log(messages, content)
                 return _extract_json(content)
             except Exception as e:  # 网络错误 / 限流 / JSON 解析失败
                 last_err = e

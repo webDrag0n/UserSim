@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState, useEffect } from 'react'
-import { KIND_META, RunEvent, SeriesInfo, SLOT_NAMES } from '../api'
+import { RunEvent, SeriesInfo } from '../api'
+import { KIND_META, SLOT_NAMES, cssVar, useThemeVersion } from '../components/theme'
 
 export interface SessionInfo { id: string; t: number; nTurns: number }
 
@@ -104,53 +105,54 @@ export default function ScheduleGantt({ events, series, sessions, days, curT, on
 
     for (const [k, evs] of sortedGroups) {
       const bars = mergeBars(evs)
-      const color = KIND_META[evs[0].kind]?.color ?? '#71717a'
+      const color = cssVar(KIND_META[evs[0].kind]?.cssVar ?? '--text-3')
       out.push({ key: `g-${k}`, label: k, color, bars, sessions: takeSessions(bars) })
     }
     // 未归属 session 行
     const free = sessions.filter((s) => !usedSessions.has(s.id))
     if (free.length) {
-      out.push({ key: 'free-sessions', label: '自由会话', color: '#a78bfa', bars: [], sessions: free })
+      out.push({ key: 'free-sessions', label: '自由会话', color: cssVar('--persona'), bars: [], sessions: free })
     }
     return out
   }, [events, sessions])
 
+  useThemeVersion()
   const cursorX = LABEL_W + curT * CELL + CELL / 2
 
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-semibold text-zinc-200">日程记录图</span>
-        <div className="flex gap-3 text-[10px] text-zinc-500 flex-wrap">
+        <span className="text-sm font-semibold text-t1">日程记录图</span>
+        <div className="flex gap-3 text-[10px] text-t3 flex-wrap">
           {series.map((s, si) => (
             <span key={s.id} className="flex items-center gap-1">
               <span className="h-2 w-3 rounded-sm" style={{ background: `${seriesColor(s, si)}66` }} />
               {s.icon}{s.name}
             </span>
           ))}
-          <span className="flex items-center gap-1"><span className="h-2 w-3 rounded-sm bg-red-400/70" /> 扰动</span>
-          <span className="flex items-center gap-1"><span className="h-2 w-3 rounded-sm bg-emerald-400/70" /> 恢复</span>
-          <span className="flex items-center gap-1"><span className="h-2 w-3 rounded-sm bg-violet-400" style={{ borderRadius: '50%', width: 10, height: 10 }} /> Session（点击看对话）</span>
-          <span className="text-zinc-600">点击空白处跳转回放</span>
+          <span className="flex items-center gap-1"><span className="h-2 w-3 rounded-sm bg-[var(--critical)] opacity-70" /> 扰动</span>
+          <span className="flex items-center gap-1"><span className="h-2 w-3 rounded-sm bg-[var(--good)] opacity-70" /> 恢复</span>
+          <span className="flex items-center gap-1"><span className="h-2 w-3 rounded-sm bg-[var(--persona)]" style={{ borderRadius: '50%', width: 10, height: 10 }} /> Session（点击看对话）</span>
+          <span className="text-t3">点击空白处跳转回放</span>
         </div>
       </div>
       <div ref={scrollRef} className="overflow-x-auto pb-2" style={{ maxHeight: 340, overflowY: 'auto' }}>
         <div className="relative" style={{ width, minWidth: width }}>
           {/* 天表头 */}
-          <div className="flex sticky top-0 z-20 bg-[#0d0e14]">
+          <div className="flex sticky top-0 z-20 bg-surface">
             <div className="shrink-0" style={{ width: LABEL_W }} />
             {Array.from({ length: days }, (_, d) => (
-              <div key={d} className="shrink-0 text-center text-[10px] font-semibold text-zinc-400 border-l border-white/10 py-1"
+              <div key={d} className="shrink-0 text-center text-[10px] font-semibold text-t2 border-l border-edge py-1"
                 style={{ width: CELL * 4 }}>
                 d{d + 1}
               </div>
             ))}
           </div>
           {/* 时段表头 */}
-          <div className="flex sticky top-[22px] z-20 bg-[#0d0e14]">
+          <div className="flex sticky top-[22px] z-20 bg-surface">
             <div className="shrink-0" style={{ width: LABEL_W }} />
             {Array.from({ length: totalSlots }, (_, i) => (
-              <div key={i} className="shrink-0 text-center text-[8.5px] text-zinc-600 py-0.5" style={{ width: CELL }}>
+              <div key={i} className="shrink-0 text-center text-[8.5px] text-t3 py-0.5" style={{ width: CELL }}>
                 {SLOT_NAMES[i % 4][0]}
             </div>
             ))}
@@ -175,14 +177,14 @@ export default function ScheduleGantt({ events, series, sessions, days, curT, on
           })}
           {/* 行 */}
           {rows.map((row) => (
-            <div key={row.key} className="flex items-center border-t border-white/5 hover:bg-white/[0.02]"
+            <div key={row.key} className="flex items-center border-t border-edge hover:bg-[var(--hover)]"
               style={{ height: 26 }}
               onClick={(e) => {
                 const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
                 const x = (e as unknown as MouseEvent).clientX - rect.left - LABEL_W
                 if (x >= 0) onSeek(Math.min(totalSlots - 1, Math.max(0, Math.floor(x / CELL))))
               }}>
-              <div className="shrink-0 px-2 text-[10px] text-zinc-400 truncate sticky left-0 bg-[#0c0d12] z-10"
+              <div className="shrink-0 px-2 text-[10px] text-t2 truncate sticky left-0 bg-surface z-10"
                 style={{ width: LABEL_W }}>
                 {row.label}
               </div>
@@ -200,10 +202,10 @@ export default function ScheduleGantt({ events, series, sessions, days, curT, on
                   <button key={s.id}
                     onClick={(e) => { e.stopPropagation(); onSelectSession(s.id) }}
                     className={`absolute top-1/2 -translate-y-1/2 rounded-full transition-all ${
-                      selectedSession === s.id ? 'ring-2 ring-violet-300 scale-125' : 'hover:scale-125'}`}
+                      selectedSession === s.id ? 'ring-2 ring-[var(--persona)] scale-125' : 'hover:scale-125'}`}
                     style={{
                       left: s.t * CELL + CELL / 2 - 5, width: 10, height: 10,
-                      background: '#a78bfa',
+                      background: 'var(--persona)',
                     }}
                     title={`${s.id} · ${s.nTurns} turns · 点击查看对话`} />
                 ))}
@@ -211,15 +213,15 @@ export default function ScheduleGantt({ events, series, sessions, days, curT, on
             </div>
           ))}
           {/* 当前时间游标 */}
-          <div className="absolute top-0 bottom-0 w-px bg-cyan-400/80 z-10 pointer-events-none" style={{ left: cursorX }}>
-            <div className="absolute -top-0 -translate-x-1/2 h-2 w-2 rounded-full bg-cyan-400" />
+          <div className="absolute top-0 bottom-0 w-px bg-[var(--accent)] z-10 pointer-events-none" style={{ left: cursorX }}>
+            <div className="absolute -top-0 -translate-x-1/2 h-2 w-2 rounded-full bg-[var(--accent)]" />
           </div>
         </div>
       </div>
 
       {/* minimap 2D 缩略导航 */}
       <div className="mt-3">
-        <div className="text-[10px] text-zinc-600 mb-1 font-num">全局缩略（2D）· 点击/拖动跳转横纵位置</div>
+        <div className="text-[10px] text-t3 mb-1 font-num">全局缩略（2D）· 点击/拖动跳转横纵位置</div>
         {(() => {
           const contentH = 48 + rows.length * 26
           const miniRowH = Math.min(3.5, 140 / Math.max(1, rows.length))
@@ -234,7 +236,7 @@ export default function ScheduleGantt({ events, series, sessions, days, curT, on
             }
           }
           return (
-            <div className="relative select-none cursor-crosshair rounded border border-white/10 overflow-hidden"
+            <div className="relative select-none cursor-crosshair rounded border border-edge overflow-hidden"
               style={{ height: miniH, background: 'rgba(255,255,255,0.02)' }}
               onClick={(e) => seek(e.clientX, e.clientY, e.currentTarget)}
               onMouseMove={(e) => { if (e.buttons === 1) seek(e.clientX, e.clientY, e.currentTarget) }}>
@@ -263,7 +265,7 @@ export default function ScheduleGantt({ events, series, sessions, days, curT, on
                       }} />
                   ))}
                   {row.sessions.map((s) => (
-                    <div key={s.id} className="absolute rounded-full bg-violet-400"
+                    <div key={s.id} className="absolute rounded-full bg-[var(--persona)]"
                       style={{
                         left: `${(s.t / totalSlots) * 100}%`,
                         top: miniRowH * 0.2, width: Math.max(1.5, miniRowH * 0.6), height: Math.max(1.5, miniRowH * 0.6),
@@ -272,9 +274,9 @@ export default function ScheduleGantt({ events, series, sessions, days, curT, on
                 </div>
               ))}
               {/* 当前时间线 */}
-              <div className="absolute top-0 bottom-0 w-px bg-cyan-300" style={{ left: `${(curT / totalSlots) * 100}%` }} />
+              <div className="absolute top-0 bottom-0 w-px bg-[var(--accent)]" style={{ left: `${(curT / totalSlots) * 100}%` }} />
               {/* 2D 视口矩形 */}
-              <div className="absolute rounded border border-cyan-300/70 bg-cyan-300/10 pointer-events-none"
+              <div className="absolute rounded border border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_15%,transparent)] pointer-events-none"
                 style={{
                   left: `${(viewport.left / width) * 100}%`,
                   top: `${(viewport.top / contentH) * 100}%`,

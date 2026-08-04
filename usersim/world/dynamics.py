@@ -10,9 +10,12 @@
 
 from __future__ import annotations
 
-from usersim.contracts import Event, StateVec
+from usersim.contracts import DIMS, Event, StateVec, dim_error, total_error
 
-DIMS = ["valence", "energy", "satiety", "stress"]
+# dim_error / total_error / DIMS 的权威定义已下移至 contracts.metrics
+# （world / evaluator / agents 三方共用，见 docs/00 依赖表）。
+# 此处 re-export 保持既有 import 路径可用。
+__all__ = ["DIMS", "dim_error", "total_error", "settle_slot"]
 
 
 def _clip01(v: float) -> float:
@@ -26,6 +29,7 @@ def settle_slot(
     is_workday: bool,
     active_events: list[Event],
     dyn,  # Namespace: config [dynamics]
+    reversion_mult: float = 1.0,  # 人格调节（神经质越高越慢），由 world 传入
 ) -> tuple[StateVec, dict[str, float], dict[str, float], dict[str, float]]:
     """返回 (x_after, natural_drift, event_effects, control_effects)。"""
     d = x.model_dump()
@@ -64,8 +68,10 @@ def settle_slot(
     # 深夜无自然漂移：睡眠恢复由"睡眠事件"（配表档位）结算
 
     # 压力均值回归：自然心理调适（O1——防止慢性压力无限累积，保留扰动冲击）
+    # 神经质调节（docs/11 第 4 节）：神经质越高，压力回落越慢
     if hasattr(dyn, "stress_mean_reversion"):
-        add(natural, "stress", (dyn.stress_reversion_target - d["stress"]) * dyn.stress_mean_reversion)
+        rate = dyn.stress_mean_reversion * reversion_mult
+        add(natural, "stress", (dyn.stress_reversion_target - d["stress"]) * rate)
 
     # 3) 事件效果（数值按 span 摊销；pull 类拉向准稳态，不摊销）
     for e in active_events:
@@ -100,14 +106,3 @@ def settle_slot(
     # 漂移量修正为实际生效量（限幅会截断）
     x_after = StateVec(**d)
     return x_after, natural, event_fx, control_fx
-
-
-def dim_error(x: StateVec, dim: str, targets: dict[str, float]) -> float:
-    """单侧偏差：健康维低于目标才算误差，压力高于目标才算误差。"""
-    v = getattr(x, dim)
-    t = targets[dim]
-    return max(0.0, t - v) if dim != "stress" else max(0.0, v - t)
-
-
-def total_error(x: StateVec, targets: dict[str, float]) -> float:
-    return sum(dim_error(x, k, targets) for k in DIMS) / len(DIMS)

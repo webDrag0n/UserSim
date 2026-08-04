@@ -7,7 +7,15 @@ from __future__ import annotations
 
 from usersim.contracts import Event, EventContext, Persona, Series, SlotSettlement, StateVec, ToolResult
 from usersim.world import dynamics, events as ev
-from usersim.world.anthro import Needs, habit_key, habit_params, hab_weight, persona_modifiers
+from usersim.world.anthro import (
+    Needs,
+    hab_weight,
+    habit_key,
+    habit_params,
+    persona_modifiers,
+    preference_modifiers,
+    reversion_rate_mult,
+)
 from usersim.world.balance import load_overrides
 from usersim.world.catalog import find_variant, get_economy
 from usersim.world.felt import felt_state
@@ -29,11 +37,11 @@ class World:
         self.weekend_days: list[int] = list(cfg.events.weekend_free_days)
 
         self.streams = make_streams(seed)
-        self.persona: Persona = generate_persona(self.streams["persona"], cfg.state.initial.to_dict())
-        if archetype:  # 前端可指定职业（收入随之改变），其余人格维度仍由 seed 决定
-            from usersim.world.catalog import income_for_archetype
-            self.persona.archetype = archetype
-            self.persona.income_per_slot = income_for_archetype(archetype)
+        # archetype 传入生成器而非事后改写：职业会偏移人格域基线，且 Persona 的
+        # 人格/喜好字段是 frozen 的（冻结维度不可运行期改写）。
+        self.persona: Persona = generate_persona(
+            self.streams["persona"], cfg.state.initial.to_dict(), archetype=archetype
+        )
         self.x: StateVec = self.persona.x0.model_copy(deep=True)
         self.t = 0
 
@@ -354,7 +362,11 @@ class World:
                     eff[k] = {"pull": [v["pull"][0], v["pull"][1] * w]}
                 else:
                     eff[k] = v * w * sat
-            eff = persona_modifiers(self.persona.big5, e.name, eff)
+            eff = persona_modifiers(self.persona.big5, e.name, eff, facets=self.persona.facets)
+            # 喜好调节：爱做的事回血更多、讨厌的事效果打折（只作用于恢复/系列活动，
+            # 工作与模板事件不受喜好影响——不喜欢也得上班）
+            if e.kind in ("recovery", "series"):
+                eff = preference_modifiers(self.persona.prefs, e.name, eff)
             out.append(e.model_copy(update={"effect": eff}))
         return out
 
@@ -376,7 +388,8 @@ class World:
                 self.money += e.income - e.cost
 
         x_after, natural, event_fx, control_fx = dynamics.settle_slot(
-            self.x, self.day, self.slot, effective_workday, self._effective_events(active), self.cfg.dynamics
+            self.x, self.day, self.slot, effective_workday, self._effective_events(active), self.cfg.dynamics,
+            reversion_mult=reversion_rate_mult(self.persona.big5, self.persona.facets),
         )
 
         # ---- 需求层更新（不直接写状态，只驱动求助与效果权重）----
@@ -384,7 +397,7 @@ class World:
         self.needs.update(
             satiety=x_after.satiety,
             active_names=active_names,
-            extraversion=self.persona.big5.get("外向性", 50),
+            extraversion=self.persona.facet("外向性.群居性"),
             exam_active=bool(series and series.type == "exam_crunch"),
             deadline_disturbance=any("截止" in n for n in active_names),
         )
@@ -422,6 +435,7 @@ class World:
             money_before=money_before,
             money_after=self.money,
             active_series=f"{series.icon} {series.name}" if series else None,
+            slots_per_day=self.slots_per_day,
         )
         self.x = x_after
         self.t += 1

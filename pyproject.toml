@@ -15,3 +15,9 @@ dependencies = [
 dev = [
     "pytest>=8",
 ]
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: 慢测试（批量回放/量程守护）。默认跳过，用 -m slow 单独跑，或 -m '' 全跑。",
+]
+addopts = "-m 'not slow'"

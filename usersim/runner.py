@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from usersim.agents.scripted import ASSISTANT_REPLIES, QUALITY_PRESETS, ScriptedAssistant, ScriptedUser
-from usersim.config import Namespace, llm_roles_summary, system_config_hash
+from usersim.config import Namespace, artifact_hashes, llm_roles_summary, system_config_hash
 from usersim.contracts import RunMeta, StateVec, ToolCall, ToolResult, TurnRecord
 from usersim.world import World
 from usersim.world.dynamics import DIMS, dim_error
@@ -47,7 +47,7 @@ def run_replay(seed: int, days: int, quality: str, cfg: Namespace, out_root: Pat
         sess_counter = 0
         turn_counter = 0
 
-    _write_meta(run_dir, run_id, world, "replay", quality)  # 开始时即写 meta，运行中可见
+    _write_meta(run_dir, run_id, world, "replay", quality, harness=f"scripted:{quality}")
     gen = world.streams["noise"]  # 脚本 Agent 共用世界噪声流 → 全程确定
     targets = cfg.state.targets.to_dict()
     band = float(cfg.state.band)
@@ -61,12 +61,13 @@ def run_replay(seed: int, days: int, quality: str, cfg: Namespace, out_root: Pat
             p.unlink(missing_ok=True)
 
     def emit(speaker: str, text: str, x_true: StateVec, x_hat: StateVec | None,
-             session_id: str | None, tool_calls=None, tool_results=None) -> None:
+             session_id: str | None, tool_calls=None, tool_results=None,
+             persona_hat=None, felt_state=None) -> None:
         nonlocal turn_counter
         rec = TurnRecord(
             run_id=run_id, t_logical=world.t, session_id=session_id, turn_id=turn_counter,
             speaker=speaker, text=text, tool_calls=tool_calls or [], tool_results=tool_results or [],
-            x_true=x_true, x_hat=x_hat,
+            x_true=x_true, x_hat=x_hat, persona_hat=persona_hat, felt_state=felt_state,
         )
         _write_jsonl(turns_path, rec)
         turn_counter += 1
@@ -87,6 +88,7 @@ def run_replay(seed: int, days: int, quality: str, cfg: Namespace, out_root: Pat
 
         # 助手观测（模拟通过对话形成的估计）
         assistant.observe(x_true, day)
+        assistant.observe_persona(world.persona)  # 冻结维度画像逐步成形
         intervene = assistant.should_intervene()
 
         if ctx.assist_prompt or intervene:
@@ -97,7 +99,7 @@ def run_replay(seed: int, days: int, quality: str, cfg: Namespace, out_root: Pat
 
             # 用户开启 session（工具调用记录）
             emit("user", f"（开启 Session）{user.opener(felt, active_names)}",
-                 x_true, None, sid, tool_calls=[ToolCall(name="open_session")])
+                 x_true, None, sid, tool_calls=[ToolCall(name="open_session")], felt_state=felt)
 
             tool_calls, tool_results = [], []
             plan_desc = "今晚好好休息"
@@ -111,7 +113,10 @@ def run_replay(seed: int, days: int, quality: str, cfg: Namespace, out_root: Pat
                 active_s = world.active_series()
                 suppress_inc = bool(active_s and _ST[active_s.type]["suppress_income"])
                 daily_income = 0.0 if (suppress_inc or not world.is_workday()) else world.persona.income_per_slot * 2
-                choice = assistant.choose_recovery(world.money, spent_today, daily_income)
+                # 候选目录由 Runner 注入（agents 不直连 world.catalog，见 docs/00 依赖表）
+                from usersim.world.catalog import affordable_variants
+                candidates = affordable_variants(max(0.0, world.money))
+                choice = assistant.choose_recovery(candidates, world.money, spent_today, daily_income)
                 if choice is not None:
                     action_name, variant_id = choice
                     # 一个时段长达数小时，助手的建议在此时段内即时生效（与动力学即时控制语义一致）
@@ -128,7 +133,8 @@ def run_replay(seed: int, days: int, quality: str, cfg: Namespace, out_root: Pat
             reply_tpl = ASSISTANT_REPLIES[int(gen.integers(len(ASSISTANT_REPLIES)))]
             est_now = assistant.hist[-1]
             emit("assistant", reply_tpl.format(plan=plan_desc),
-                 x_true, est_now, sid, tool_calls=tool_calls, tool_results=tool_results)
+                 x_true, est_now, sid, tool_calls=tool_calls, tool_results=tool_results,
+                 persona_hat=assistant.persona_belief())
 
             emit("user", f"（结束 Session）{user.ack()}", x_true, None, sid,
                  tool_calls=[ToolCall(name="close_session")])
@@ -141,12 +147,42 @@ def run_replay(seed: int, days: int, quality: str, cfg: Namespace, out_root: Pat
         if on_event:
             on_event({"type": "slot", "data": settlement.model_dump()})
 
-    _write_meta(run_dir, run_id, world, "replay", quality)
+    _write_meta(run_dir, run_id, world, "replay", quality, harness=f"scripted:{quality}")
     _save_state(run_dir, world, sess_counter, turn_counter)
     return run_dir
 
 
-def _write_meta(run_dir: Path, run_id: str, world, mode: str, quality: str | None) -> None:
+def _recovery_catalog(world) -> list[dict]:
+    """把世界的恢复动作目录摊平成被测件可见的候选清单。
+
+    Runner 是唯一组装点：agents 不得直连 world.catalog（docs/00 依赖表）。
+    """
+    from usersim.world.catalog import affordable_variants
+
+    out: list[dict] = []
+    for action, variant in affordable_variants(max(0.0, world.money)):
+        out.append({
+            "action": action["action"],
+            "vid": variant.get("vid", ""),
+            "location": variant.get("location") or variant.get("name", ""),
+            "cost": float(variant.get("cost", 0)),
+            "span": int(variant.get("span", 1)),
+        })
+    return out
+
+
+def _prompt_versions() -> dict[str, str]:
+    from usersim.agents.assistant import reference as _ref
+    from usersim.agents.user import llm_user as _usr
+
+    return {
+        "assistant": getattr(_ref, "PROMPT_VERSION", "?"),
+        "user": getattr(_usr, "PROMPT_VERSION", "?"),
+    }
+
+
+def _write_meta(run_dir: Path, run_id: str, world, mode: str, quality: str | None,
+                harness: str = "reference") -> None:
     """meta.json：run 开始时即写入（运行中也可被列表/打开），结束时可重写。"""
     meta = RunMeta(
         run_id=run_id,
@@ -156,6 +192,9 @@ def _write_meta(run_dir: Path, run_id: str, world, mode: str, quality: str | Non
         mode=mode,  # type: ignore[arg-type]
         assistant_quality=quality,
         config_hash=system_config_hash(),
+        harness=harness,
+        artifact_hashes=artifact_hashes(),
+        prompt_versions=_prompt_versions(),
         persona=world.persona,
         llm_roles=llm_roles_summary(),
     )
@@ -163,13 +202,16 @@ def _write_meta(run_dir: Path, run_id: str, world, mode: str, quality: str | Non
 
 
 def _save_state(run_dir: Path, world, sess_counter: int, turn_counter: int,
-                harness_notes: str | None = None) -> None:
-    """存档：世界快照 + 计数器 + Harness 记忆，供续跑恢复。"""
+                harness_state: dict | None = None) -> None:
+    """存档：世界快照 + 计数器 + Harness 记忆，供续跑恢复。
+
+    Harness 记忆走协议的 snapshot()/restore()——不再假设它是一段 profile_notes 文本。
+    """
     state = {
         "world": world.to_snapshot(),
         "sess_counter": sess_counter,
         "turn_counter": turn_counter,
-        "harness_notes": harness_notes,
+        "harness_state": harness_state or {},
     }
     (run_dir / "run_state.json").write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
 
@@ -182,15 +224,23 @@ def _save_state(run_dir: Path, world, sess_counter: int, turn_counter: int,
 def run_live(seed: int, days: int, cfg: Namespace, out_root: Path,
              on_event=None, archetype: str | None = None,
              resume_dir: Path | None = None, extra_days: int = 0,
-             run_id: str | None = None) -> Path:
-    """真实运行模式：两个 LLM Agent 上线，完整 benchmark。支持续跑。"""
+             run_id: str | None = None, harness: str | None = None,
+             harness_factory=None) -> Path:
+    """真实运行模式：两个 LLM Agent 上线，完整 benchmark。支持续跑。
+
+    harness: registry 中的被测 Harness 名（默认 reference）；
+    harness_factory: 测试注入用的构造器（优先于 harness 名），签名 (client) -> Harness。
+    """
     from pydantic import ValidationError
 
-    from usersim.agents.assistant import ReferenceHarness
+    from usersim.agents.assistant import DEFAULT_HARNESS, resolve
     from usersim.agents.user import LLMUserAgent
     from usersim.config import load_llm_role, load_llm_runtime
-    from usersim.contracts import UserContext
+    from usersim.contracts import DialogueTurn, HarnessObs, PersonaBelief, UserContext
     from usersim.llm import LLMClient, LLMError
+
+    harness_name = harness or DEFAULT_HARNESS
+    harness_cls = resolve(harness_name) if harness_factory is None else None
 
     if resume_dir is not None:
         run_dir = resume_dir
@@ -199,7 +249,7 @@ def run_live(seed: int, days: int, cfg: Namespace, out_root: Path,
         world = World.from_snapshot(state["world"], cfg, extra_days)
         sess_counter = state["sess_counter"]
         turn_counter = state["turn_counter"]
-        saved_notes = state.get("harness_notes")
+        saved_harness = state.get("harness_state") or {}
     else:
         run_id = run_id or f"live_{seed}_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}"
         run_dir = out_root / run_id
@@ -207,15 +257,22 @@ def run_live(seed: int, days: int, cfg: Namespace, out_root: Path,
         world = World(seed=seed, days=days, cfg=cfg, archetype=archetype)
         sess_counter = 0
         turn_counter = 0
-        saved_notes = None
+        saved_harness = {}
 
-    _write_meta(run_dir, run_id, world, "live", None)  # 开始时即写 meta
+    _write_meta(run_dir, run_id, world, "live", None, harness=harness_name)  # 开始时即写 meta
 
     runtime = load_llm_runtime()
-    user = LLMUserAgent(LLMClient(load_llm_role("user_agent"), runtime))
-    assistant = ReferenceHarness(LLMClient(load_llm_role("assistant_agent"), runtime))
-    if saved_notes:
-        assistant.profile_notes = saved_notes
+    user_client = LLMClient(load_llm_role("user_agent"), runtime)
+    user_client.set_log_dir(run_dir)
+    user = LLMUserAgent(user_client)
+    if harness_factory is not None:
+        assistant = harness_factory(None)
+    else:
+        asst_client = LLMClient(load_llm_role("assistant_agent"), runtime)
+        asst_client.set_log_dir(run_dir)
+        assistant = harness_cls(asst_client)
+    if saved_harness:
+        assistant.restore(saved_harness)
 
     slots_path = run_dir / "slots.jsonl"
     turns_path = run_dir / "turns.jsonl"
@@ -225,23 +282,46 @@ def run_live(seed: int, days: int, cfg: Namespace, out_root: Path,
 
     def emit(speaker: str, text: str, x_true: StateVec, x_hat: StateVec | None,
              session_id: str | None, tool_calls=None, tool_results=None,
-             violation: str | None = None, degraded: bool = False) -> None:
+             violation: str | None = None, degraded: bool = False,
+             persona_hat=None, felt_state=None) -> None:
         nonlocal turn_counter
         rec = TurnRecord(
             run_id=run_id, t_logical=world.t, session_id=session_id, turn_id=turn_counter,
             speaker=speaker, text=text, tool_calls=tool_calls or [], tool_results=tool_results or [],
-            x_true=x_true, x_hat=x_hat, contract_violation=violation, degraded=degraded,
+            x_true=x_true, x_hat=x_hat, persona_hat=persona_hat,
+            contract_violation=violation, degraded=degraded, felt_state=felt_state,
         )
         _write_jsonl(turns_path, rec)
         turn_counter += 1
         if on_event:
             on_event({"type": "turn", "data": rec.model_dump()})
 
+    def _persona_hat(turn):
+        """取助手当前的冻结维度信念快照。
+
+        优先用 Harness 的累积器（协议可选方法 persona_belief）；未实现时退化为
+        本轮增量——保证老 Harness 仍能产出可评估的画像轨迹。
+        """
+        getter = getattr(assistant, "persona_belief", None)
+        if callable(getter):
+            try:
+                return getter()
+            except Exception:  # noqa: BLE001 — 被测件的 bug 不能中断 episode
+                return None
+        delta = turn.user_belief.persona_belief
+        return PersonaBelief(**delta.model_dump()) if delta is not None else None
+
     max_turns = int(cfg.user_agent.max_turns_per_session)
+    # 每时段 session 容量上限（[clock].max_sessions_per_slot；此前是死配置）
+    max_sessions_per_slot = int(cfg.clock.get("max_sessions_per_slot", 5) or 5)
+    slot_sessions = {"t": -1, "n": 0}
 
     while not world.done:
         ctx = world.current_context()
-        if ctx.assist_prompt:
+        if slot_sessions["t"] != world.t:
+            slot_sessions = {"t": world.t, "n": 0}
+        at_capacity = slot_sessions["n"] >= max_sessions_per_slot
+        if ctx.assist_prompt and not at_capacity:
             x_snapshot = world.x.model_copy(deep=True)
             uctx = UserContext(
                 persona=world.persona, felt_state=world.felt_state(),
@@ -250,12 +330,13 @@ def run_live(seed: int, days: int, cfg: Namespace, out_root: Path,
             )
             try:
                 open_it = user.decide_open(uctx)
-            except LLMError as e:
+            except Exception as e:  # noqa: BLE001 — 降级而非中断长 episode（含 LLMError）
                 emit("system", f"用户 Agent 调用失败，本时段跳过：{e}", x_snapshot, None, None, degraded=True)
                 open_it = False
 
             if open_it:
                 sess_counter += 1
+                slot_sessions["n"] += 1
                 sid = f"S{sess_counter:04d}"
                 history: list[dict] = []
                 tool_results: list = []
@@ -267,16 +348,17 @@ def run_live(seed: int, days: int, cfg: Namespace, out_root: Path,
                                        speaker=h["speaker"], text=h["text"], x_true=x_snapshot)
                             for i, h in enumerate(history)
                         ])
-                    except LLMError as e:
+                    except Exception as e:  # noqa: BLE001 — 含 LLMError；降级而非中断
                         emit("system", f"用户 Agent 降级（{e}）", x_snapshot, None, sid, degraded=True)
                         break
                     emit("user", ua["say"], x_snapshot, None, sid,
-                         tool_calls=[ToolCall(name="open_session")] if turn_no == 0 else [])
+                         tool_calls=[ToolCall(name="open_session")] if turn_no == 0 else [],
+                         felt_state=uctx.felt_state if turn_no == 0 else None)
                     history.append({"speaker": "user", "text": ua["say"]})
 
                     # ---- 助手回 ----
                     # O3：注入今日已有安排，避免重复安排冲突
-                    slot_names = cfg.clock.slot_names
+                    slot_names = list(cfg.clock.slot_names)
                     today_events = [
                         e for e in world.events
                         if e.kind in ("recovery", "series", "disturbance")
@@ -285,13 +367,28 @@ def run_live(seed: int, days: int, cfg: Namespace, out_root: Path,
                     schedule_hint = "；".join(
                         f"{e.name}（{slot_names[e.start_slot % world.slots_per_day]}）" for e in today_events
                     )
+                    obs = HarnessObs(
+                        user_say=ua["say"],
+                        history=[DialogueTurn(speaker=h["speaker"], text=h["text"]) for h in history],
+                        tool_results=tool_results,
+                        balance=world.money,
+                        schedule_hint=schedule_hint,
+                        recovery_catalog=_recovery_catalog(world),
+                        slot_names=slot_names,
+                        day=world.day,
+                        slot=world.slot,
+                    )
                     try:
-                        at = assistant.on_turn(history, ua["say"], tool_results, balance=world.money,
-                                               schedule_hint=schedule_hint)
+                        at = assistant.on_turn(obs)
                         violation = None
                     except (LLMError, ValidationError) as e:
                         at = None
                         violation = f"assistant_contract_or_llm_error: {e}"
+                    except Exception as e:  # noqa: BLE001
+                        # 被测 Harness 是第三方代码：任何异常都记为违约并继续，
+                        # 不能让一个 episode 因被测件的 bug 整体丢失。
+                        at = None
+                        violation = f"assistant_harness_crash: {type(e).__name__}: {e}"
                     if at is None:
                         emit("system", f"助手契约违约：{violation}", x_snapshot, None, sid,
                              violation=violation)
@@ -332,7 +429,8 @@ def run_live(seed: int, days: int, cfg: Namespace, out_root: Path,
                             tool_results.append(ToolResult(name=call.name, ok=False, payload={"error": "未知工具"}))
 
                     emit("assistant", at.reply, x_snapshot, at.user_belief.to_statevec(), sid,
-                         tool_calls=at.tool_calls, tool_results=tool_results)
+                         tool_calls=at.tool_calls, tool_results=tool_results,
+                         persona_hat=_persona_hat(at))
                     history.append({"speaker": "assistant", "text": at.reply})
 
                     if ua["end_session"]:
@@ -346,6 +444,6 @@ def run_live(seed: int, days: int, cfg: Namespace, out_root: Path,
         if on_event:
             on_event({"type": "slot", "data": settlement.model_dump()})
 
-    _write_meta(run_dir, run_id, world, "live", None)
-    _save_state(run_dir, world, sess_counter, turn_counter, harness_notes=assistant.profile_notes)
+    _write_meta(run_dir, run_id, world, "live", None, harness=harness_name)
+    _save_state(run_dir, world, sess_counter, turn_counter, harness_state=assistant.snapshot())
     return run_dir

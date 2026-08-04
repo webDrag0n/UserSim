@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import math
 
+from usersim.contracts.persona import trait
+
 # ---------------------------------------------------------------
 # 1. 习惯化曲线
 # ---------------------------------------------------------------
@@ -89,7 +91,8 @@ class Needs:
         n = self.n
         # 饥饿：直接由饱腹推导（低饱腹加速驱动）
         n["hunger"] = max(0.0, min(1.0, 1.0 - satiety))
-        # 社交：每时段累积，外向者更快；社交事件后释放
+        # 社交：每时段累积，群居性高者更快；社交事件后释放
+        # （extraversion 由 world 传入 外向性.群居性 facet，缺失时为域分）
         n["social"] = min(1.0, n["social"] + 0.01 * (1.6 if extraversion >= 60 else 1.0))
         if any(any(k in nm for k in SOCIAL_EVENTS) for nm in active_names):
             n["social"] = max(0.1, n["social"] - 0.5)
@@ -136,33 +139,103 @@ class Needs:
 # 3. 人格调节（大五生效）
 # ---------------------------------------------------------------
 
-def persona_modifiers(big5: dict[str, int], event_name: str, effect: dict) -> dict:
-    """按人格修正事件效果：内向社交耗电、神经质增压、开放性爱新异。"""
+def persona_modifiers(big5: dict[str, int], event_name: str, effect: dict,
+                      facets: dict[str, int] | None = None) -> dict:
+    """按人格修正事件效果（facet 粒度）。
+
+    facets 给定时按细分面调节，缺失时自动回退到域分——旧存档因此行为不变：
+
+    - **社交电池**：外向性.群居性 决定社交耗电/回血，外向性.热情 决定心情加成；
+    - **压力放大**：神经质.焦虑 与 神经质.脆弱 的均值决定压力事件被放大多少；
+    - **新异刺激**：开放性.尝新 与 开放性.审美 决定新异/文化类事件的收益。
+
+    用细分面而非域分是有意义的：一个"群居性低但热情高"的人（享受深聊、厌恶饭局）
+    与"群居性高但热情低"的人（爱热闹但不亲近）在域分上都是中等外向，行为却完全不同。
+    """
     out = dict(effect)
-    extra = big5.get("外向性", 50) / 100
-    neuro = big5.get("神经质", 50) / 100
-    openn = big5.get("开放性", 50) / 100
+    gregarious = trait(big5, facets, "外向性.群居性") / 100
+    warmth = trait(big5, facets, "外向性.热情") / 100
+    anxiety = trait(big5, facets, "神经质.焦虑") / 100
+    vulnerability = trait(big5, facets, "神经质.脆弱") / 100
+    neuro = (anxiety + vulnerability) / 2
+    novelty = trait(big5, facets, "开放性.尝新") / 100
+    aesthetic = trait(big5, facets, "开放性.审美") / 100
 
     def num(k: str) -> bool:
         return isinstance(out.get(k), (int, float))
 
     if any(k in event_name for k in SOCIAL_EVENTS):
         if num("energy"):
-            out["energy"] *= (1.0 + 1.2 * extra) if out["energy"] > 0 else (1.6 - 1.2 * extra)
+            out["energy"] *= (1.0 + 1.2 * gregarious) if out["energy"] > 0 else (1.6 - 1.2 * gregarious)
         else:
-            out["energy"] = 0.04 * extra - 0.05 * (1 - extra)
-        if extra > 0.7 and num("valence"):
+            out["energy"] = 0.04 * gregarious - 0.05 * (1 - gregarious)
+        if warmth > 0.7 and num("valence"):
             out["valence"] = out.get("valence", 0.0) + 0.03
     if num("stress") and out["stress"] > 0:
         out["stress"] *= (1.0 + (neuro - 0.5))
     if any(k in event_name for k in STIM_EVENTS):
+        openness = (novelty + aesthetic) / 2
         if num("valence") and out["valence"] > 0:
-            out["valence"] *= (0.7 + 0.6 * openn)
+            out["valence"] *= (0.7 + 0.6 * openness)
         if num("stress") and out["stress"] < 0:
-            out["stress"] *= (0.7 + 0.6 * openn)
+            out["stress"] *= (0.7 + 0.6 * openness)
     return out
 
 
-def reversion_rate_mult(big5: dict[str, int]) -> float:
-    """神经质越高，压力均值回归越慢。"""
-    return 1.0 - 0.4 * (big5.get("神经质", 50) / 100)
+def reversion_rate_mult(big5: dict[str, int], facets: dict[str, int] | None = None) -> float:
+    """神经质（焦虑 + 脆弱）越高，压力均值回归越慢。"""
+    anxiety = trait(big5, facets, "神经质.焦虑") / 100
+    vulnerability = trait(big5, facets, "神经质.脆弱") / 100
+    return 1.0 - 0.4 * ((anxiety + vulnerability) / 2)
+
+
+# ---------------------------------------------------------------
+# 4. 喜好调节（结构化偏好生效）
+# ---------------------------------------------------------------
+
+# 喜好对效果的最大调幅：±40%。上限刻意保守——喜好要能被观测到（否则助手无从学起，
+# 画像精度也就无从谈起），但不能大到让"猜中喜好"压倒控制策略本身。
+PREF_GAIN = 0.4
+
+
+def preference_multiplier(pref_score: float) -> float:
+    """类目偏好分 [-1,1] → 效果倍率。爱做的事回血更多，讨厌的事事倍功半。"""
+    return 1.0 + PREF_GAIN * max(-1.0, min(1.0, float(pref_score)))
+
+
+def preference_modifiers(prefs, event_name: str, effect: dict,
+                         category: str | None = None) -> dict:
+    """按结构化喜好修正事件的**正向**效果。
+
+    只放大/缩小对用户有益的分量（valence 正、stress 负）——讨厌的活动不会因为
+    "讨厌"就变得更伤身，它只是**没那么回血**。此外命中 loves/hates 关键词时
+    额外给心情一个小冲量：这是助手"真的懂我"最直接的可观测信号。
+    """
+    if prefs is None or not effect:
+        return effect
+    from usersim.contracts.persona import pref_category
+
+    cat = category or pref_category(event_name)
+    out = dict(effect)
+    mult = preference_multiplier(prefs.pref_of(cat)) if cat else 1.0
+
+    if mult != 1.0:
+        for k, v in list(out.items()):
+            if isinstance(v, dict) and "pull" in v:
+                continue  # pull 类是"拉向准稳态"，喜好不改变目标值
+            if k == "stress" and v < 0:
+                out[k] = v * mult
+            elif k in ("valence", "energy") and v > 0:
+                out[k] = v * mult
+
+    name = event_name or ""
+    hit_love = any(tag and tag in name for tag in getattr(prefs, "loves", []))
+    hit_hate = any(tag and tag in name for tag in getattr(prefs, "hates", []))
+    if hit_love or hit_hate:
+        bonus = (0.04 if hit_love else 0.0) - (0.04 if hit_hate else 0.0)
+        base = out.get("valence")
+        if isinstance(base, (int, float)):
+            out["valence"] = base + bonus
+        elif base is None:
+            out["valence"] = bonus
+    return out

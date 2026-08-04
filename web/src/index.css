@@ -2,9 +2,113 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================
+   设计系统 · 双主题 CSS 变量（浅色优先，data-theme="dark" 切换）
+   配色取自 dataviz palette.md 的 chrome/ink + 已校验的四维 categorical。
+   ============================================================ */
+:root {
+  color-scheme: light;
+  --plane:      #f5f5f7;   /* 页面底 */
+  --surface:    #ffffff;   /* 卡片面 */
+  --surface-2:  #fbfbfd;   /* 次级卡片/内嵌块 */
+  --text-1:     #0b0b0b;   /* 主文字 */
+  --text-2:     #52514e;   /* 次文字 */
+  --text-3:     #898781;   /* 静音（轴/标签） */
+  --grid:       #e1e0d9;   /* 网格线 */
+  --axis:       #c3c2b7;   /* 基线/轴 */
+  --border:     rgba(11,11,11,0.10);
+  --border-2:   rgba(11,11,11,0.06);
+  --hover:      rgba(11,11,11,0.04);
+  --shadow:     0 1px 2px rgba(11,11,11,0.04), 0 8px 24px rgba(11,11,11,0.06);
+  --shadow-lg:  0 2px 8px rgba(11,11,11,0.08), 0 20px 48px rgba(11,11,11,0.12);
+  --toolbar-bg: rgba(255,255,255,0.72);
+
+  /* 四维状态色（浅 surface #ffffff，dataviz 校验通过） */
+  --valence: #1baf7a;  /* 心情 */
+  --energy:  #2a78d6;  /* 精力 */
+  --satiety: #eda100;  /* 饱腹 */
+  --stress:  #e34948;  /* 压力 */
+
+  /* 判定/状态色（固定，不随主题） */
+  --good:     #0ca30c;
+  --warning:  #fab219;
+  --serious:  #ec835a;
+  --critical: #d03b3b;
+
+  /* 语义强调（用户绿 / 助手蓝 / 系列粉 / 画像紫） */
+  --accent:   #2a78d6;
+  --user:     #1baf7a;
+  --assistant:#2a78d6;
+  --series:   #d55181;
+  --persona:  #4a3aa7;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --plane:      #0d0d0d;
+  --surface:    #1c1c1e;
+  --surface-2:  #242426;
+  --text-1:     #ffffff;
+  --text-2:     #c3c2b7;
+  --text-3:     #898781;
+  --grid:       #2c2c2a;
+  --axis:       #383835;
+  --border:     rgba(255,255,255,0.10);
+  --border-2:   rgba(255,255,255,0.06);
+  --hover:      rgba(255,255,255,0.05);
+  --shadow:     0 1px 2px rgba(0,0,0,0.4), 0 8px 24px rgba(0,0,0,0.5);
+  --shadow-lg:  0 2px 8px rgba(0,0,0,0.5), 0 20px 48px rgba(0,0,0,0.6);
+  --toolbar-bg: rgba(28,28,30,0.72);
+
+  /* 四维状态色（深 surface #1c1c1e，dataviz 相邻对全 PASS） */
+  --valence: #199e70;
+  --energy:  #3987e5;
+  --satiety: #c98500;
+  --stress:  #e5484d;
+
+  --accent:   #3987e5;
+  --user:     #199e70;
+  --assistant:#3987e5;
+  --series:   #d55181;
+  --persona:  #9085e9;
+}
+
 html { scroll-behavior: smooth; }
-body { background: #0a0b10; color: #e4e4e7; }
-.font-num { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+body {
+  background: var(--plane);
+  color: var(--text-1);
+  font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  transition: background 0.4s ease, color 0.4s ease;
+}
+
+/* 数字：等宽表格数字，用于对齐的列/轴/表 */
+.font-num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+
+/* 大标题：负 tracking（apple-design §15） */
+.display { letter-spacing: -0.02em; line-height: 1.05; font-optical-sizing: auto; }
+h1, h2, h3 { letter-spacing: -0.01em; }
+
 ::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }
+::-webkit-scrollbar-thumb { background: var(--axis); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* 因果链流动虚线 */
+@keyframes dashflow { to { stroke-dashoffset: -24; } }
+.flow { stroke-dasharray: 5 5; animation: dashflow 1.4s linear infinite; }
+
+/* 可访问性：降低动态 */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .flow { animation: none; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.15s !important;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root { --toolbar-bg: #ffffff; }
+  :root[data-theme="dark"] { --toolbar-bg: #1c1c1e; }
+}

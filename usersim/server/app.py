@@ -67,7 +67,8 @@ def _broadcast(handle: RunHandle, event: dict) -> None:
 
 
 def _execute(handle: RunHandle, mode: str, seed: int, days: int, quality: str,
-             archetype: str | None = None, resume_dir: Path | None = None, extra_days: int = 0) -> None:
+             archetype: str | None = None, resume_dir: Path | None = None, extra_days: int = 0,
+             harness: str | None = None) -> None:
     def on_event(ev: dict) -> None:
         if ev["type"] == "slot":
             handle.progress["slot"] = ev["data"]["t_logical"] + 1
@@ -77,7 +78,7 @@ def _execute(handle: RunHandle, mode: str, seed: int, days: int, quality: str,
         if mode == "live":
             run_dir = run_live(seed=seed, days=days, cfg=cfg, out_root=OUT_ROOT, on_event=on_event,
                                archetype=archetype, resume_dir=resume_dir, extra_days=extra_days,
-                               run_id=handle.run_id)
+                               run_id=handle.run_id, harness=harness)
         else:
             run_dir = run_replay(seed=seed, days=days, quality=quality, cfg=cfg, out_root=OUT_ROOT,
                                  on_event=on_event, archetype=archetype,
@@ -99,6 +100,7 @@ class StartRunRequest(BaseModel):
     days: int | None = None
     quality: str = "good"
     archetype: str | None = None
+    harness: str | None = None  # 被测 Harness（仅 live）
 
 
 @app.post("/api/runs")
@@ -117,11 +119,122 @@ def start_run(req: StartRunRequest) -> dict:
     RUNS[run_id] = handle
 
     def _wrap() -> None:
-        _execute(handle, req.mode, seed, days, req.quality, archetype=req.archetype)
+        _execute(handle, req.mode, seed, days, req.quality, archetype=req.archetype,
+                 harness=req.harness)
 
     handle.thread = threading.Thread(target=_wrap, daemon=True)
     handle.thread.start()
     return {"started": True, "run_id": run_id, "seed": seed, "days": days, "mode": req.mode}
+
+
+@app.get("/api/harnesses")
+def list_harnesses() -> dict:
+    """可选被测 Harness 清单（前端启动表单的下拉数据源）。"""
+    from usersim.agents.assistant import DEFAULT_HARNESS, available
+
+    return {"items": available(), "default": DEFAULT_HARNESS}
+
+
+# ---------------------------------------------------------------
+# Bench：多 seed 批量与置信区间
+# ---------------------------------------------------------------
+
+BENCH_ROOT = OUT_ROOT / "_bench"
+BENCH_JOBS: dict[str, dict] = {}
+
+
+class StartBenchRequest(BaseModel):
+    seeds: str = "1-8"
+    days: int = 30
+    mode: str = "replay"           # replay | live
+    groups: list[str] | None = None
+    archetypes: list[str] | None = None
+    max_episodes: int | None = None
+
+
+@app.post("/api/bench")
+def start_bench(req: StartBenchRequest) -> dict:
+    from usersim.bench import BenchSpec, default_concurrency, estimate_tokens, run_suite
+    from usersim.cli import _parse_seeds
+
+    seeds = _parse_seeds(req.seeds)
+    groups = req.groups or (["good", "mid", "poor"] if req.mode == "replay" else ["reference"])
+    archetypes: list = list(req.archetypes) if req.archetypes else [None]
+    spec = BenchSpec(seeds=seeds, days=req.days, mode=req.mode, groups=groups,
+                     archetypes=archetypes, concurrency=default_concurrency())
+    n_ep = len(spec.episodes())
+
+    if req.mode == "live":
+        cap = req.max_episodes
+        if cap is None or n_ep > cap:
+            return {"started": False, "n_episodes": n_ep,
+                    "estimated_tokens": estimate_tokens(spec),
+                    "error": "live 批量需显式确认 max_episodes 且不得超过它"}
+
+    from datetime import datetime, timezone
+    bench_id = f"bench_{req.mode}_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}"
+    job = {"bench_id": bench_id, "status": "running", "done": 0, "total": n_ep, "error": None}
+    BENCH_JOBS[bench_id] = job
+
+    def _work() -> None:
+        def on_progress(done: int, total: int, last: dict) -> None:
+            job["done"] = done
+            job["total"] = total
+
+        try:
+            run_suite(spec, out_root=BENCH_ROOT, bench_id=bench_id, on_progress=on_progress)
+            job["status"] = "finished"
+        except Exception as e:  # noqa: BLE001
+            job["status"] = "failed"
+            job["error"] = str(e)
+
+    threading.Thread(target=_work, daemon=True).start()
+    return {"started": True, "bench_id": bench_id, "n_episodes": n_ep}
+
+
+@app.get("/api/bench")
+def list_bench() -> dict:
+    """已有批量结果列表（含运行中的任务进度）。"""
+    items = []
+    if BENCH_ROOT.exists():
+        for d in sorted(BENCH_ROOT.iterdir(), reverse=True):
+            agg = d / "aggregate.json"
+            if not agg.exists():
+                continue
+            data = json.loads(agg.read_text(encoding="utf-8"))
+            items.append({
+                "bench_id": d.name,
+                "mode": data.get("mode"),
+                "days": data.get("days"),
+                "n_episodes": data.get("n_episodes"),
+                "groups": sorted(data.get("groups", {})),
+                "has_guard": (d / "discriminability.json").exists(),
+            })
+    return {"items": items, "jobs": list(BENCH_JOBS.values())}
+
+
+@app.get("/api/bench/{bench_id}")
+def bench_detail(bench_id: str) -> dict:
+    from fastapi import HTTPException
+
+    d = BENCH_ROOT / bench_id
+    agg = d / "aggregate.json"
+    if not agg.exists():
+        job = BENCH_JOBS.get(bench_id)
+        if job:
+            return {"pending": True, "job": job}
+        raise HTTPException(status_code=404, detail=f"未知 bench {bench_id}")
+    out: dict = {"aggregate": json.loads(agg.read_text(encoding="utf-8"))}
+    guard = d / "discriminability.json"
+    if guard.exists():
+        out["discriminability"] = json.loads(guard.read_text(encoding="utf-8"))
+    eps = d / "episodes.jsonl"
+    if eps.exists():
+        out["episodes"] = [
+            json.loads(l) for l in eps.read_text(encoding="utf-8").splitlines() if l.strip()
+        ]
+    out["job"] = BENCH_JOBS.get(bench_id)
+    return out
 
 
 class ContinueRunRequest(BaseModel):
@@ -213,7 +326,8 @@ def run_insights(run_id: str) -> dict:
 
     d = _find_run_dir(run_id)
     slots, turns, meta = load_run(d)
-    return compute_insights(slots, turns, meta, cfg.state.targets.to_dict(), float(cfg.state.band))
+    return compute_insights(slots, turns, meta, cfg.state.targets.to_dict(), float(cfg.state.band),
+                            score_cfg=cfg.get("score"))
 
 
 @app.get("/api/runs/{run_id}/events")

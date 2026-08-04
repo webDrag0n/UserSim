@@ -1,6 +1,6 @@
 # 00 · 总体架构
 
-状态: 草稿
+状态: 已实现
 
 ## 1. 一句话定义
 
@@ -29,7 +29,14 @@ UserSim = **纯规则世界** + **两个 LLM Agent** + **纯规则评估器**，
 | `world` | contracts | agents、evaluator、llm |
 | `agents/*` | contracts、llm | world、evaluator（运行时由编排器注入上下文） |
 | `evaluator` | contracts | world、agents、llm |
-| `server` | world、agents、evaluator、contracts | —（唯一的组装点） |
+| `server` / `bench` / `runner` / `cli` | world、agents、evaluator、contracts | —（登记在册的组装点） |
+
+**强制方式**：`tests/test_dependency_rules.py` 用 `ast` 静态扫描全部 import（含函数内延迟
+import），并额外断言 world/evaluator 中不存在 LLM 痕迹、不存在未登记的跨包组装者。
+
+共享的纯函数下沉而非放宽规则：`DIMS / dim_error / total_error / belief_error` 的权威定义在
+`contracts/metrics.py`——"什么叫偏离内心平和"是契约的一部分，三方必须一致，否则世界的动力学
+目标、助手的控制目标、评估器的打分标准会各自漂移。`world/dynamics.py` 保留 re-export。
 
 ## 3. 关键架构决策
 
@@ -88,6 +95,10 @@ assistant 每产生一轮回复，必须在同一个结构化输出中给出：
 
 ## 6. 实现备注
 
-- 依赖规则目前由包结构与 code review 维护（CI import 检查待补）；Runner 位于 `usersim/runner.py`，是唯一组装点之一（另一为 server）。
+- 依赖规则已 CI 化（`tests/test_dependency_rules.py`）。第三轮迭代前该规则实际已被违反：
+  `agents/scripted.py` 与 `evaluator/*` 都直接 import 了 `world.dynamics`，`scripted.py` 还在
+  函数内延迟 import `world.catalog`。修复方式是把共享纯函数下移进 contracts，并让 Runner
+  注入恢复目录（而非让 agents 自己去世界里取）。
+- Runner 位于 `usersim/runner.py`，是组装点之一（其余为 server / bench / cli）。
 - 规则回放（`run_replay`）与真实运行（`run_live`）两种模式均已落地；离线评估 `python -m usersim eval <run_dir>` 可用。
 - 编排中发现并解决的一个语义问题：恢复事件在"当时段即时生效"（一个时段长达数小时，助手建议在此时段内落地），与动力学即时控制语义一致。

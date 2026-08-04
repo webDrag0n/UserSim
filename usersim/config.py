@@ -56,6 +56,47 @@ def system_config_hash(path: Path | None = None) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
 
 
+def _sha12(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()[:12]
+
+
+def _file_hash(path: Path) -> str:
+    return _sha12(path.read_bytes()) if path.exists() else "absent"
+
+
+def _llm_config_hash(path: Path | None = None) -> str:
+    """llm.toml 的哈希，**先剔除密钥行**——避免把密钥作为哈希前像写进产物。"""
+    path = path or PROJECT_ROOT / "config" / "llm.toml"
+    if not path.exists():
+        return "absent"
+    kept = [
+        line for line in path.read_text(encoding="utf-8").splitlines()
+        if "api_key" not in line
+    ]
+    return _sha12("\n".join(kept).encode("utf-8"))
+
+
+def artifact_hashes() -> dict[str, str]:
+    """可复现性凭证：所有影响轨迹的产物的哈希。
+
+    此前 meta.json 只记 system.toml 的哈希，于是改 Excel 配表、改 catalog 数值、
+    改 prompt 都不会反映在凭证里——两个"同 config_hash"的 run 其实不可比。
+    """
+    root = PROJECT_ROOT
+    parts = {
+        "system": _file_hash(root / "config" / "system.toml"),
+        "llm": _llm_config_hash(),
+        "balance": _file_hash(root / "balance-sheet" / "UserSim数值配表.xlsx"),
+        "catalog": _file_hash(root / "usersim" / "world" / "catalog.py"),
+        "prompts": _sha12(
+            _file_hash(root / "usersim" / "agents" / "assistant" / "reference.py").encode()
+            + _file_hash(root / "usersim" / "agents" / "user" / "llm_user.py").encode()
+        ),
+    }
+    parts["combined"] = _sha12("|".join(f"{k}={v}" for k, v in sorted(parts.items())).encode())
+    return parts
+
+
 def _resolve_key(provider: str, cfg: dict[str, Any]) -> str:
     env_name = f"USERSIM_{provider.upper()}_API_KEY"
     key = os.environ.get(env_name) or cfg.get("api_key", "")

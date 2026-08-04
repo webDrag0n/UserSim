@@ -23,11 +23,26 @@ class StateVec(BaseModel):
 class Persona(BaseModel):
     name: str
     archetype: str
-    big5: dict[str, int]          # 开放性/尽责性/外向性/宜人性/神经质, 0-100, 冻结
-    likes: str                    # 喜好自我陈述, 冻结
+    big5: dict[str, int]          # 5 域聚合分, 0-100, frozen（由 facets 派生）
+    facets: dict[str, int]        # 大五 30 细分面, 0-100, frozen
+    likes: str                    # 喜好自我陈述, frozen
+    prefs: Preferences            # 结构化喜好, frozen
     routine: str                  # 作息模板标识
     x0: StateVec                  # 初始状态
+    income_per_slot: int = 200
+
+class Preferences(BaseModel):     # 结构化喜好（冻结特质）
+    categories: dict[str, float] = {}   # 11 类目 → 偏好分 [-1,1]
+    loves: list[str] = []; hates: list[str] = []
+    interruption_tolerance: float = 0.5 # 越低越讨厌计划被打断
+    planning_style: str = "看心情"       # 提前规划 | 随遇而安 | 看心情
+    social_recharge: str = "独处"        # 独处 | 找人
 ```
+
+人格/喜好四个字段为 pydantic `frozen=True`：**冻结维度运行期不可改写**（此前只是
+口头约定，`world.py` 曾直接改 `archetype`）。facet 词表与画像度量在
+`contracts/persona.py`（三方共用的唯一数据源），详见 `docs/13-persona-model.md`。
+`facets` 缺省为空 dict——旧存档仍可读，读取时经 `trait()` 回退到域分。
 
 ### Event — 事件（六字段）
 
@@ -92,7 +107,21 @@ class UserBelief(BaseModel):
     energy: float = Field(ge=0, le=1)
     satiety: float = Field(ge=0, le=1)
     stress: float = Field(ge=0, le=1)
-    persona_notes: str = ""           # 画像笔记（冻结维度评估素材）
+    persona_notes: str = ""                          # 画像笔记（自由文本）
+    persona_belief: PersonaBeliefDelta | None = None  # 冻结维度估计**增量**
+
+class PersonaBeliefDelta(BaseModel):  # 每轮只填有新证据的项（留空 > 瞎猜）
+    facets: dict[str, int] = {}           # facet key → 0-100
+    categories: dict[str, float] = {}     # 类目 → [-1,1]
+    loves: list[str] = []; hates: list[str] = []
+    interruption_tolerance: float | None = None
+    planning_style: str | None = None
+    social_recharge: str | None = None
+    confidence: float | None = None
+    notes: str = ""
+
+class PersonaBelief(BaseModel):  # Harness 合并后的完整信念（落盘用，同形但 confidence 必填）
+    ...  # 字段同上；未估计过的 facet 直接缺席，不填 50 占位
 
 class ToolCall(BaseModel):
     name: str
@@ -120,9 +149,19 @@ class TurnRecord(BaseModel):
     tool_results: list[ToolResult]
     x_true: StateVec                  # world 提供（对用户 LLM 不可见）
     x_hat: StateVec | None            # assistant 提供；user/system 行为 None
+    persona_hat: PersonaBelief | None = None  # 助手对人格/喜好的累积估计（逐 turn 快照）
     contract_violation: str | None = None
     degraded: bool = False
+    felt_state: str | None = None     # world 把 x 翻译成的语义化感受（仅用户开口 turn）
 ```
+
+`felt_state` 是 world 规则翻译器（`world.felt_state()`）产出的自然语言感受，运行期只
+经 `UserContext` 传给用户 Agent；现在同时落盘到用户开启 session 的那一 turn，前端因此
+能展示「世界真实 x → 用户感受到的 → 用户说出的 → 助手估计的 x̂」四层因果链。evaluator
+不消费该字段（`world/`·`evaluator/` 的 0 LLM 边界不变），旧 run 缺省 `None`。
+
+`persona_hat` 落盘的是**合并后的完整快照**而非增量：前端因此能逐 turn 回放画像的
+成长过程，评估器也无需自己重放增量。
 
 ### meta.json（每 run 一份）
 

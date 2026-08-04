@@ -7,14 +7,24 @@
 from __future__ import annotations
 
 from usersim.contracts import Event, TurnRecord, UserContext
+from usersim.contracts.persona import BIG5_DOMAINS, FACET_HINTS, facet_keys_of
 from usersim.llm import LLMClient
 
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"  # v2：大五 30 facet 全量注入 + 结构化喜好
 
 SYS_TEMPLATE = """你是 {name}，{archetype}。你不是一个 AI 助手，你就是这个人本人。
 
-【你的性格（大五）】{big5}
+【你的性格（大五 · 30 个细分特质，0-100）】
+{big5}
+
+怎么用这份性格：分数是**你行为的内在原因**，不是台词素材。
+- 高分特质（>65）会明显外显在你的说话方式与选择上；低分特质（<35）则相反；
+- 例：焦虑高 → 你会反复担心还没发生的事；条理性高 → 你在意日程是否整齐；
+  群居性低但热情高 → 你厌恶饭局，但和亲近的人能聊很久。
+- **绝对不要报出分数、不要提"大五"或特质名**。要让人从你的语气和决定里看出来。
+
 【你的喜好】{likes}
+{prefs_block}
 【你的作息】{routine}
 
 【铁律】
@@ -23,6 +33,8 @@ SYS_TEMPLATE = """你是 {name}，{archetype}。你不是一个 AI 助手，你�
 3. 你不能自己操作手机：查日程、写日程、设提醒都必须请助手代劳。
 4. 你的所有输出必须是 JSON。
 5. **严禁重复自己说过的话**——每次都用不同的方式表达当下的感受（可以换说法、换侧重点、换细节）。
+6. 你的性格与喜好是**固定的**：不要为了迎合助手而改变偏好；助手推荐你讨厌的东西时，
+   按你的性格自然地表达抗拒（宜人性.顺从高就勉强接受、低就直接拒绝）。
 
 【当前感受】{felt}
 {assist_block}"""
@@ -40,8 +52,51 @@ SPEAK_TEMPLATE = """{sys}
 - 如果想请助手帮你写日程/查日程，直接在 say 里说出来即可。"""
 
 
-def _big5_str(big5: dict[str, int]) -> str:
-    return "、".join(f"{k} {v}" for k, v in big5.items())
+def _big5_str(big5: dict[str, int], facets: dict[str, int] | None = None) -> str:
+    """人格分格式化：有 facets 时按域分组列出 30 项（含语义注释），否则退回域分。
+
+    注释（FACET_HINTS）是必要的：光给"审慎 24"这个数字，LLM 未必知道该往哪演。
+    """
+    if not facets:
+        return "、".join(f"{k} {v}" for k, v in big5.items())
+    lines = []
+    for domain in BIG5_DOMAINS:
+        keys = [k for k in facet_keys_of(domain) if k in facets]
+        if not keys:
+            continue
+        items = "；".join(
+            f"{k.split('.', 1)[1]} {facets[k]}（{FACET_HINTS.get(k, '')}）" for k in keys
+        )
+        lines.append(f"· {domain}：{items}")
+    return "\n".join(lines)
+
+
+def _prefs_str(prefs) -> str:
+    """结构化喜好 → prompt 段落。喜好是冻结的，必须一字不差地贯彻。"""
+    if prefs is None:
+        return ""
+    cats = getattr(prefs, "categories", {}) or {}
+    loves = [c for c, v in sorted(cats.items(), key=lambda kv: -kv[1]) if v >= 0.5]
+    hates = [c for c, v in sorted(cats.items(), key=lambda kv: kv[1]) if v <= -0.4]
+    parts = []
+    if loves:
+        parts.append(f"你偏爱的活动类型：{'、'.join(loves)}")
+    if hates:
+        parts.append(f"你不感兴趣甚至排斥的：{'、'.join(hates)}")
+    if getattr(prefs, "loves", None):
+        parts.append(f"你特别喜欢：{'、'.join(prefs.loves)}")
+    if getattr(prefs, "hates", None):
+        parts.append(f"你明确讨厌：{'、'.join(prefs.hates)}")
+    tol = getattr(prefs, "interruption_tolerance", None)
+    if tol is not None:
+        desc = "计划被打断会让你很烦躁" if tol < 0.35 else (
+            "对计划变动比较无所谓" if tol > 0.65 else "计划被改动你能接受但不情愿")
+        parts.append(desc)
+    if getattr(prefs, "planning_style", None):
+        parts.append(f"做事风格：{prefs.planning_style}")
+    if getattr(prefs, "social_recharge", None):
+        parts.append(f"状态差的时候你靠「{prefs.social_recharge}」回血")
+    return "【你的具体偏好（固定不变）】\n" + "；".join(parts) if parts else ""
 
 
 def _events_str(events: list[Event]) -> str:
@@ -68,8 +123,10 @@ class LLMUserAgent:
         p = ctx.persona
         assist_block = f"【提示】{ctx.assist_prompt}" if ctx.assist_prompt else ""
         return SYS_TEMPLATE.format(
-            name=p.name, archetype=p.archetype, big5=_big5_str(p.big5),
-            likes=p.likes, routine=p.routine, felt=ctx.felt_state,
+            name=p.name, archetype=p.archetype,
+            big5=_big5_str(p.big5, getattr(p, "facets", None)),
+            likes=p.likes, prefs_block=_prefs_str(getattr(p, "prefs", None)),
+            routine=p.routine, felt=ctx.felt_state,
             assist_block=assist_block,
         )
 

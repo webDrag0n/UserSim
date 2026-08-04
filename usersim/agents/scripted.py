@@ -11,8 +11,7 @@ import math
 
 import numpy as np
 
-from usersim.contracts import StateVec
-from usersim.world.dynamics import DIMS, dim_error
+from usersim.contracts import DIMS, StateVec, dim_error
 
 QUALITY_PRESETS: dict[str, dict] = {
     "good": {"K": 0.85, "sigma0": 0.030, "sigma_floor": 0.008, "decay": 0.25, "delay": 0, "recover_prob": 0.97, "margin": 0.3},
@@ -32,6 +31,15 @@ def _numeric_effect(eff: dict, est: StateVec) -> dict[str, float]:
     return out
 
 
+# 三档助手的画像学习能力：每次观察揭示几个 facet、噪声多大、多久看清喜好。
+# 与状态估计的噪声模型同构——好助手越聊越准，差助手基本学不到东西。
+PROFILE_PRESETS: dict[str, dict] = {
+    "good": {"facets_per_obs": 3, "sigma": 8.0, "cat_sigma": 0.10, "tag_prob": 0.55},
+    "mid": {"facets_per_obs": 2, "sigma": 18.0, "cat_sigma": 0.28, "tag_prob": 0.25},
+    "poor": {"facets_per_obs": 1, "sigma": 34.0, "cat_sigma": 0.55, "tag_prob": 0.05},
+}
+
+
 class ScriptedAssistant:
     """三档脚本助手：估计噪声、滞后与增益决定了回路表现（收敛/振荡/发散）。"""
 
@@ -42,6 +50,60 @@ class ScriptedAssistant:
         self.targets = targets
         self.band = band
         self.hist: list[StateVec] = []
+        # 冻结维度画像：带噪声地逐步"看清"真实人格与喜好（0 LLM，纯规则）
+        self.pq = PROFILE_PRESETS[quality]
+        self._facets: dict[str, int] = {}
+        self._cats: dict[str, float] = {}
+        self._loves: list[str] = []
+        self._hates: list[str] = []
+        self._n_obs = 0
+
+    # ---------------- 冻结维度画像（规则版观测器） ----------------
+    def observe_persona(self, persona) -> None:
+        """每次介入时多认识一点用户：随机揭示若干 facet 与类目偏好（带噪声）。
+
+        真值来自 Runner 传入的 persona（脚本 Agent 是世界的一部分，允许直连；
+        LLM 助手走的是完全不同的路径——只能从对话里推断）。
+        """
+        from usersim.contracts.persona import FACET_KEYS, PREF_CATEGORIES
+
+        self._n_obs += 1
+        truth_f = getattr(persona, "facets", None) or {}
+        prefs = getattr(persona, "prefs", None)
+
+        for key in self.gen.choice(FACET_KEYS, size=min(self.pq["facets_per_obs"], len(FACET_KEYS)),
+                                   replace=False):
+            k = str(key)
+            if k not in truth_f:
+                continue
+            noisy = truth_f[k] + self.gen.normal(0, self.pq["sigma"])
+            est = int(np.clip(round(noisy), 0, 100))
+            # 已有估计则滑动平均（多次观察收敛到真值附近）
+            self._facets[k] = int(round(0.5 * self._facets[k] + 0.5 * est)) if k in self._facets else est
+
+        if prefs is not None:
+            cat = str(self.gen.choice(PREF_CATEGORIES))
+            true_v = float(prefs.categories.get(cat, 0.0))
+            noisy = float(np.clip(true_v + self.gen.normal(0, self.pq["cat_sigma"]), -1, 1))
+            self._cats[cat] = round(0.5 * self._cats[cat] + 0.5 * noisy, 3) if cat in self._cats else round(noisy, 3)
+            for tag in list(prefs.loves)[:3]:
+                if tag not in self._loves and self.gen.random() < self.pq["tag_prob"]:
+                    self._loves.append(tag)
+            for tag in list(prefs.hates)[:3]:
+                if tag not in self._hates and self.gen.random() < self.pq["tag_prob"]:
+                    self._hates.append(tag)
+
+    def persona_belief(self):
+        from usersim.contracts import PersonaBelief
+
+        if not self._facets and not self._cats:
+            return None
+        return PersonaBelief(
+            facets=dict(self._facets), categories=dict(self._cats),
+            loves=list(self._loves), hates=list(self._hates),
+            confidence=round(min(1.0, self._n_obs / 25.0), 3),
+            notes=f"（脚本助手 {self.quality} 档：{self._n_obs} 次观察）",
+        )
 
     def observe(self, x_true: StateVec, day: int) -> StateVec:
         sigma = self.q["sigma_floor"] + (self.q["sigma0"] - self.q["sigma_floor"]) * math.exp(-self.q["decay"] * day)
@@ -68,16 +130,18 @@ class ScriptedAssistant:
         est = self.delayed_estimate()
         return est is not None and self.violates(est) and self.gen.random() < self.q["recover_prob"]
 
-    def choose_recovery(self, money: float, spent_today: float = 0.0, daily_income: float = 200.0) -> tuple[str, str] | None:
-        """按估计误差从配表选择恢复变体，返回 (动作名, 变体ID)。
+    def choose_recovery(self, candidates: list[tuple[dict, dict]], money: float,
+                        spent_today: float = 0.0, daily_income: float = 200.0) -> tuple[str, str] | None:
+        """按估计误差从候选变体中选择恢复动作，返回 (动作名, 变体ID)。
+
+        `candidates` 由 Runner 注入（[(action, variant), ...]，均为买得起的档位）——
+        agents 包不得直连 world.catalog（docs/00 依赖表）。
 
         三档策略：
         - good：在买得起的变体中选"效果最接近 u=K·ê"的（精准控制）
         - mid：买效果总量最大的（增益过猛 → 超调）
         - poor：只选最便宜的（控制不足）
         """
-        from usersim.world.catalog import affordable_variants
-
         est = self.delayed_estimate()
         if est is None:
             return None
@@ -92,7 +156,6 @@ class ScriptedAssistant:
         if not any(v > 0 for v in need.values()):
             return None
 
-        candidates = affordable_variants(max(0.0, money))
         if not candidates:
             return None
 

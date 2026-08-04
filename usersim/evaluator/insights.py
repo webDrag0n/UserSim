@@ -12,8 +12,17 @@ from __future__ import annotations
 
 from collections import Counter
 
-from usersim.contracts import SlotSettlement, TurnRecord
-from usersim.world.dynamics import DIMS, dim_error, total_error
+from usersim.contracts import (
+    DIMS,
+    SlotSettlement,
+    TurnRecord,
+    dim_error,
+    facet_coverage,
+    facet_error,
+    prefs_error,
+    tag_hit_rate,
+    total_error,
+)
 
 DIM_LABELS = {"valence": "心情", "energy": "精力", "satiety": "饱腹", "stress": "压力"}
 SEVERITY_ORDER = {"error": 0, "warn": 1, "info": 2}
@@ -24,16 +33,45 @@ def _f(sev: str, cat: str, title: str, detail: str, suggestion: str = "", eviden
             "suggestion": suggestion, "evidence": evidence}
 
 
+# 健康分扣分权重的代码默认值（可由 config/system.toml [score] 覆盖）。
+# 每项 = (系数, 扣分上限)：扣分 = min(上限, 观测量 × 系数)。
+# 依据见 docs/04-evaluator.md 第 7 节权重表。
+SCORE_DEFAULTS: dict[str, tuple[float, float]] = {
+    "ess": (200.0, 40.0),            # 稳态误差：最重（控制目标本身）
+    "violations": (5.0, 15.0),       # 契约违约：协议遵守
+    "xhat_bias": (80.0, 10.0),       # 估计系统性偏差：观测器质量
+    "user_dup": (1.5, 10.0),         # 台词复读：拟人性
+    "clamp_ratio": (80.0, 10.0),     # 状态饱和：世界分辨力
+    "no_recover": (2.0, 10.0),       # 扰动无响应：干预覆盖
+    "persona_err": (40.0, 10.0),     # 画像精度：人格/喜好估计偏差（冻结维度考点）
+}
+
+
+def _score_weights(score_cfg) -> dict[str, tuple[float, float]]:
+    out = dict(SCORE_DEFAULTS)
+    if score_cfg is None:
+        return out
+    raw = score_cfg.to_dict() if hasattr(score_cfg, "to_dict") else dict(score_cfg)
+    for key, val in raw.items():
+        if key in out and isinstance(val, (list, tuple)) and len(val) == 2:
+            out[key] = (float(val[0]), float(val[1]))
+    return out
+
+
 def compute_insights(
     slots: list[SlotSettlement],
     turns: list[TurnRecord],
     meta: dict,
     targets: dict[str, float],
     band: float,
+    score_cfg=None,
 ) -> dict:
     findings: list[dict] = []
     stats: dict = {}
-    days_n = max(1, (slots[-1].t_logical // 4 + 1) if slots else 1)
+    # 时钟刻度从结算单读取（world 写入），不再硬编码 4
+    spd = int(getattr(slots[0], "slots_per_day", 4) or 4) if slots else 4
+    n_dims = len(DIMS)
+    days_n = max(1, (slots[-1].t_logical // spd + 1) if slots else 1)
 
     # ================= 逐维控制指标 =================
     dims = []
@@ -136,21 +174,21 @@ def compute_insights(
 
     # ================= 世界真实性 =================
     clamp_hits = sum(1 for s in slots for v in s.x_after.model_dump().values() if v <= 0.001 or v >= 0.999)
-    clamp_ratio = clamp_hits / max(1, len(slots) * 4)
+    clamp_ratio = clamp_hits / max(1, len(slots) * n_dims)
     if clamp_ratio > 0.08:
         findings.append(_f("warn", "世界", f"状态饱和率 {clamp_ratio:.1%}",
                            "状态频繁顶到 [0,1] 边界，损失分辨力。",
                            "检查扰动/恢复/动力学系数的量级平衡，避免极端摆幅。"))
     debt_slots = sum(1 for s in slots if s.money_after < 0)
     if debt_slots:
-        findings.append(_f("info", "世界", f"负债 {debt_slots} 时段（{debt_slots // 4} 天）",
+        findings.append(_f("info", "世界", f"负债 {debt_slots} 时段（{debt_slots // spd} 天）",
                            "金钱为负，负债压力持续作用。",
                            "若负债过长，检查职业收入与生活成本/恢复消费的平衡。"))
 
-    recov_days = {t.t_logical // 4 for t in turns for r in t.tool_results if r.name == "add_event_todo" and r.ok}
+    recov_days = {t.t_logical // spd for t in turns for r in t.tool_results if r.name == "add_event_todo" and r.ok}
     high_no_rec = 0
     for d in range(days_n):
-        day_slots = slots[d * 4:(d + 1) * 4]
+        day_slots = slots[d * spd:(d + 1) * spd]
         if day_slots and sum(s.x_after.stress for s in day_slots) / len(day_slots) > 0.55 and d not in recov_days:
             high_no_rec += 1
     if high_no_rec >= 3:
@@ -176,7 +214,7 @@ def compute_insights(
                 break
         dname = next((eid for eid in slots[t_logical].active_event_ids if eid.startswith("D")), "D?")
         disturbances.append({
-            "t": t_logical, "day": t_logical // 4 + 1, "event": dname,
+            "t": t_logical, "day": t_logical // spd + 1, "event": dname,
             "stress_jump": round(stress_jump, 3),
             "recover_in_slots": (rec_t - t_logical) if rec_t is not None else None,
             "time_to_band_slots": t2b,
@@ -203,7 +241,7 @@ def compute_insights(
         tools = [c.name for t in ts for c in t.tool_calls]
         added = any(r.name == "add_event_todo" and r.ok for t in ts for r in t.tool_results)
         sessions.append({
-            "id": sid, "day": ts[0].t_logical // 4 + 1, "t": ts[0].t_logical,
+            "id": sid, "day": ts[0].t_logical // spd + 1, "t": ts[0].t_logical,
             "turns": len(ts),
             "tools": sorted(set(tools)),
             "belief_err_start": _bel_err(asst[0]) if asst else None,
@@ -241,7 +279,7 @@ def compute_insights(
         "money_end": round(money[-1]) if money else 0,
         "money_min": round(min(money, default=0)),
         "money_max": round(max(money, default=0)),
-        "debt_days": debt_slots // 4,
+        "debt_days": debt_slots // spd,
         "recovery_spend_by_action": dict(sorted(cost_events.items(), key=lambda x: -x[1])[:8]),
     }
 
@@ -277,7 +315,7 @@ def compute_insights(
         v_during = sum(slots[t].x_after.valence for t in ts) / len(ts)
         v_after = slots[last + 4].x_after.valence if last + 4 < len(slots) else None
         series_analysis.append({
-            "name": name, "days": f"第 {first // 4 + 1}~{last // 4 + 1} 天",
+            "name": name, "days": f"第 {first // spd + 1}~{last // spd + 1} 天",
             "valence_before": round(v_before, 3) if v_before is not None else None,
             "valence_during": round(v_during, 3),
             "valence_after": round(v_after, 3) if v_after is not None else None,
@@ -307,18 +345,50 @@ def compute_insights(
                                "Harness 应在每条新信息后刷新估计；检查 user_model 是否真的被调用。"))
         stats["belief_frozen_ratio"] = round(frozen, 3)
 
+    # ================= 冻结维度画像（人格 + 喜好） =================
+    persona_err, persona_stats = _persona_stats(turns, meta.get("persona"), spd)
+    stats.update(persona_stats)
+    if persona_stats.get("persona_turns", 0) == 0:
+        findings.append(_f("warn", "助手", "从未估计用户人格/喜好",
+                           "没有任何 turn 落盘 persona_hat——冻结维度画像完全缺失。",
+                           "Harness 应在 user_belief.persona_belief 里逐步给出人格 facet 与喜好判断。"))
+    else:
+        cov = persona_stats.get("persona_coverage", 0.0)
+        if cov < 0.4:
+            findings.append(_f("warn", "助手", f"人格画像覆盖率仅 {cov:.0%}",
+                               "30 个大五细分特质中只估计了少数几个。",
+                               "多轮对话应逐步覆盖更多特质；对话中出现相关线索时及时记录。"))
+        if persona_err is not None and persona_err > 0.25:
+            findings.append(_f("warn", "助手", f"人格估计偏差 {persona_err:.2f}",
+                               "估计的人格与角色卡真值差距较大（0-1 归一后）。",
+                               "检查是否在瞎猜：没证据的 facet 留空比填 50 更好，"
+                               "有证据时按用户言行修正而非沿用第一印象。"))
+        slope = persona_stats.get("persona_err_slope_per_day")
+        if slope is not None and slope > 0.002:
+            findings.append(_f("warn", "助手", "画像越聊越差",
+                               f"画像误差斜率 {slope:+.4f}/天（应为负——越聊越懂用户）。",
+                               "累积器可能被单句话带跑，或每轮全量重报导致随机抖动。"))
+
     # ================= 健康分与摘要 =================
     ess = sum(total_error(s.x_after, targets) for s in slots[-12:]) / max(1, len(slots[-12:]))
     max_bias = max((abs(d["xhat_bias"]) for d in dims if d["xhat_bias"] is not None), default=0)
-    health = 100.0
-    health -= min(40, ess * 200)
-    health -= min(15, len(violations) * 5)
-    health -= min(10, max_bias * 80)
-    health -= min(10, user_dup * 1.5)
-    health -= min(10, clamp_ratio * 80)
-    health -= min(10, len(no_recover) * 2)
-    health = max(0, round(health))
+    w = _score_weights(score_cfg)
+    observations = {
+        "ess": ess,
+        "violations": len(violations),
+        "xhat_bias": max_bias,
+        "user_dup": user_dup,
+        "clamp_ratio": clamp_ratio,
+        "no_recover": len(no_recover),
+        # 画像精度：没有估计时按满误差 0.5 计（不作为不能免罚——否则 stub 反而占便宜）
+        "persona_err": persona_err if persona_err is not None else 0.5,
+    }
+    deductions = {
+        k: min(w[k][1], observations[k] * w[k][0]) for k in observations
+    }
+    health = max(0, round(100.0 - sum(deductions.values())))
     stats["health_score"] = health
+    stats["score_deductions"] = {k: round(v, 2) for k, v in deductions.items()}
     stats["ess"] = round(ess, 4)
     stats["n_turns"] = len(turns)
     stats["n_sessions"] = len(sessions)
@@ -350,6 +420,63 @@ def compute_insights(
         "series_analysis": series_analysis,
         "stats": stats,
     }
+
+
+def _persona_stats(turns: list[TurnRecord], persona: dict | None,
+                   spd: int) -> tuple[float | None, dict]:
+    """冻结维度画像统计：(末期人格误差, stats 片段)。
+
+    误差取**末期**（最后一天的均值）而非全程均值：画像是学习任务，"最后学没学会"
+    才是要考核的东西；全程均值会惩罚"一开始不懂"这件必然的事。
+    """
+    out: dict = {"persona_turns": 0}
+    hats = [t for t in turns if t.persona_hat is not None]
+    out["persona_turns"] = len(hats)
+    if not persona or not hats:
+        return None, out
+
+    true_facets = {k: int(v) for k, v in (persona.get("facets") or {}).items()}
+    true_prefs = persona.get("prefs") or {}
+    true_cats = {k: float(v) for k, v in (true_prefs.get("categories") or {}).items()}
+    if not true_facets and not true_cats:
+        return None, out  # 旧存档无真值
+
+    by_day: dict[int, list[float]] = {}
+    for t in hats:
+        e = facet_error(true_facets, t.persona_hat.facets)
+        if e is not None:
+            by_day.setdefault(t.t_logical // spd, []).append(e)
+    daily = sorted((d, sum(v) / len(v)) for d, v in by_day.items())
+
+    last = hats[-1].persona_hat
+    out["persona_coverage"] = round(facet_coverage(last.facets), 3)
+    out["persona_confidence"] = round(float(last.confidence), 3)
+    out["prefs_err_final"] = _round_opt(prefs_error(true_cats, last.categories))
+    out["prefs_loves_f1"] = _round_opt(tag_hit_rate(list(true_prefs.get("loves") or []), last.loves))
+    out["prefs_hates_f1"] = _round_opt(tag_hit_rate(list(true_prefs.get("hates") or []), last.hates))
+    if not daily:
+        return None, out
+
+    err_final = daily[-1][1]
+    out["persona_err_final"] = round(err_final, 4)
+    out["persona_err_first"] = round(daily[0][1], 4)
+    if len(daily) > 1:
+        xs = [float(d) for d, _ in daily]
+        ys = [e for _, e in daily]
+        n = len(xs)
+        sx, sy = sum(xs), sum(ys)
+        sxy = sum(x * y for x, y in zip(xs, ys))
+        sxx = sum(x * x for x in xs)
+        denom = n * sxx - sx * sx
+        out["persona_err_slope_per_day"] = round(
+            (n * sxy - sx * sy) / denom if abs(denom) > 1e-12 else 0.0, 5)
+    else:
+        out["persona_err_slope_per_day"] = 0.0
+    return err_final, out
+
+
+def _round_opt(v: float | None) -> float | None:
+    return None if v is None else round(float(v), 4)
 
 
 def _bel_err(t: TurnRecord) -> float | None:
