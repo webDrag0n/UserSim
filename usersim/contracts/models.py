@@ -71,6 +71,7 @@ class Persona(BaseModel):
     routine: str
     x0: StateVec
     income_per_slot: int = 200  # 职业收入（每个工作时段）
+    event_library: list[dict] = Field(default_factory=list)  # 个性化事件库（不冻结，可由 world 运行时填充）
 
     def facet(self, key: str, default: int = 50) -> int:
         """读一个人格分：facet 优先、缺失回退域分（旧存档兼容）。"""
@@ -139,6 +140,7 @@ class EventContext(BaseModel):
     active_events: list[Event] = []
     assist_prompt: str | None = None  # 助手介入点提示
     schedule_view: list[Event] = []  # 可见日程（未来事件）
+    weather: str | None = None  # 当前天气（晴/多云/阴/小雨/暴雨）
 
 
 class SlotSettlement(BaseModel):
@@ -156,6 +158,7 @@ class SlotSettlement(BaseModel):
     active_series: str | None = None  # 当前活跃的系列事件名
     # 时钟刻度：评估器据此换算天，不再假设固定为 4（旧日志缺省 4 保持兼容）
     slots_per_day: int = 4
+    weather: str | None = None  # 当前天气
 
 
 # ---------------------------------------------------------------
@@ -172,6 +175,7 @@ class UserContext(BaseModel):
     assist_prompt: str | None = None
     schedule_view: list[Event] = []
     dialogue_history: list[TurnRecord] = []
+    weather: str | None = None  # 当前天气
 
 
 class UserAction(BaseModel):

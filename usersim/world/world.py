@@ -22,6 +22,7 @@ from usersim.world.felt import felt_state
 from usersim.world.persona import generate_persona
 from usersim.world.series import SERIES_TYPES, generate_itinerary
 from usersim.world.streams import make_streams
+from usersim.world.weather import Weather, initial_weather, transition_weather, weather_effect_on_state, weather_event_modifier
 
 
 class World:
@@ -63,6 +64,10 @@ class World:
         self.needs = Needs()  # 需求层（饥饿/社交/刺激/成就）
         self._series_track: dict[str, dict] = {}  # 峰终定律跟踪
         self._balance = load_overrides()  # Excel 数值覆盖（习惯化/需求/人格）
+
+        # 天气系统
+        self.weather: Weather = initial_weather(self.streams["weather"])
+
         self._inject_forced_series()
 
     # ---------------- 系列事件 ----------------
@@ -200,6 +205,7 @@ class World:
             active_events=active,
             assist_prompt=assist_prompt,
             schedule_view=upcoming,
+            weather=self.weather.value,  # 新增：当前天气
         )
         return ctx
 
@@ -300,6 +306,7 @@ class World:
             "last_done": self._last_done,
             "needs": self.needs.to_dict(),
             "series_track": self._series_track,
+            "weather": self.weather.value,  # 新增：天气状态
         }
 
     @classmethod
@@ -334,6 +341,9 @@ class World:
         w.needs = _Needs(snap.get("needs"))
         w._series_track = dict(snap.get("series_track", {}))
         w._balance = load_overrides()
+        # 恢复天气状态（旧快照兼容：默认晴天）
+        weather_str = snap.get("weather", "晴")
+        w.weather = Weather(weather_str)
         return w
 
     # ---------------- 拟人化：有效事件计算 ----------------
@@ -367,11 +377,17 @@ class World:
             # 工作与模板事件不受喜好影响——不喜欢也得上班）
             if e.kind in ("recovery", "series"):
                 eff = preference_modifiers(self.persona.prefs, e.name, eff)
+            # 天气调节：户外事件受天气影响（暴雨打折）
+            eff = weather_event_modifier(self.weather, e.name, eff)
             out.append(e.model_copy(update={"effect": eff}))
         return out
 
     # ---------------- 推进 ----------------
     def step_slot(self) -> SlotSettlement:
+        # 天气转移（每个 slot 开头）
+        if self.slot == 0:  # 每天开始时转移天气
+            self.weather = transition_weather(self.weather, self.streams["weather"])
+
         x_before = self.x.model_copy(deep=True)
         money_before = self.money
         active = self.active_events()
@@ -392,6 +408,16 @@ class World:
             reversion_mult=reversion_rate_mult(self.persona.big5, self.persona.facets),
         )
 
+        # ---- 天气效果叠加（心情微调）----
+        weather_eff = weather_effect_on_state(self.weather)
+        for k, v in weather_eff.items():
+            if k == "valence":
+                x_after.valence = min(1.0, max(0.0, x_after.valence + v))
+                natural[k] += v
+            elif k == "stress":
+                x_after.stress = min(1.0, max(0.0, x_after.stress + v))
+                natural[k] += v
+
         # ---- 需求层更新（不直接写状态，只驱动求助与效果权重）----
         active_names = [e.name for e in active]
         self.needs.update(
@@ -400,6 +426,7 @@ class World:
             extraversion=self.persona.facet("外向性.群居性"),
             exam_active=bool(series and series.type == "exam_crunch"),
             deadline_disturbance=any("截止" in n for n in active_names),
+            slot=self.slot,  # 新增：生物钟调制
         )
         # 刺激过载：连续高刺激日程也会烦躁（倒 U 的另一侧）
         if self.needs.n["stimulation"] > 0.8:
@@ -436,6 +463,7 @@ class World:
             money_after=self.money,
             active_series=f"{series.icon} {series.name}" if series else None,
             slots_per_day=self.slots_per_day,
+            weather=self.weather.value,  # 新增：当前天气
         )
         self.x = x_after
         self.t += 1

@@ -1,104 +1,139 @@
 # 00 · 总体架构
 
-状态: 已实现
+UserSim = **纯规则世界** + **两个 LLM Agent**（用户模拟 + 被测助手）+ **纯规则控制论评估器**，用控制论指标评测「助手能否让用户的心理状态收敛到内心平和」。
 
-## 1. 一句话定义
+---
 
-UserSim = **纯规则世界** + **两个 LLM Agent** + **纯规则评估器**，用控制论指标评测"助手能否让用户的生活收敛到内心平和"。
+## 四个组件
 
-## 2. 组件拓扑与依赖规则
-
-```
-            ┌──────────────────────── world（0 LLM）────────────────────────┐
-            │  时钟  事件引擎  状态动力学  结算器  日程生成器  轨迹日志写入   │
+```text
+            ┌──────────────────────── World（0 LLM）────────────────────────┐
+            │  时钟  事件引擎  状态动力学  结算器  天气  需求  日志写入       │
             └───────▲───────────────────────────────────────────▲──────────┘
-                    │ EventContext / ToolResult                  │ TurnLog（落盘）
+                    │ UserContext / ToolResult                   │ TurnLog（落盘）
                     │                                            │
-   user_agent（LLM）┘                                            └──── evaluator（0 LLM）
-        ▲  对话消息                                                 离线读取 runs/*.jsonl
-        │ SessionChannel（contracts 定义的消息通道）               输出报告，永不回写世界
-        ▼
-   assistant_agent（LLM，被测件）
+   UserAgent（LLM）─┘                                            └──── Evaluator（0 LLM）
+        ▲  SessionChannel 消息                                        离线读取 runs/*.jsonl
+        ▼                                                              输出报告，永不回写世界
+   AssistantAgent（LLM，被测件）
+
+              以上四者由 Runner（编排器）组装，Runner 是唯一的组装点
 ```
 
-依赖规则（由 CI import 检查强制）：
+### World（纯规则）
+
+维护用户状态向量 `x = [valence, energy, satiety, stress] ∈ [0,1]⁴`，按时段（slot）结算。包含：
+
+- 双层时钟（外层 slot、内层 session turn）
+- 天气系统（马尔可夫链，5 种天气，每天转移）
+- 需求动力学（4 个需求 + 生物钟调制）
+- 事件引擎（模板/扰动/恢复三类事件）
+- 习惯化曲线（重复事件效果递减）
+- `felt_state` 翻译器（数值 → 语义摘要）
+
+### UserAgent（LLM 驱动）
+
+把"真实的人"演出来。每个 slot 由 UserPlanner 根据需求 urges 选出意图，再带着意图找助手开 session。收到的是 `felt_state` 语义摘要，看不到原始数值。
+
+### AssistantAgent（LLM，被测件）
+
+通过 Harness 接入，每轮回复必须同时给出估计向量 `x̂`（`user_belief`）。被测件通过消息协议接入，不感知 World 的存在。
+
+### Evaluator（纯规则）
+
+离线读取 `runs/<run_id>/` 下的日志，计算控制论指标并输出报告。不含 LLM 调用，不回写 World。
+
+---
+
+## 每个 Slot 的执行流程
+
+Runner 每推进一个 slot，按以下顺序执行：
+
+```text
+1. 天气转移（每天 slot 0 执行一次，马尔可夫链）
+2. 环境熵增（satiety 衰减、energy 消耗）
+3. 需求更新（4 个需求 + 生物钟调制：饭点/晚间加强）
+4. UserPlanner 根据 urges 选出意图事件列表（0–3 个意图）
+5. World 补充触发（扰动/高压注入紧急意图）
+6. 逐个意图开 session：
+      a. Runner 把 UserContext 注入 UserAgent
+      b. UserAgent 带着意图找 AssistantAgent 对话
+      c. Session 任意长度，唯一结束标准是用户调用 end_session
+      d. Session 结束后记录到 UserMemory
+7. step_slot() 结算状态、写日志、推进时钟
+```
+
+---
+
+## 依赖规则
+
+各包的 import 边界由 `tests/test_dependency_rules.py` 静态扫描强制：
 
 | 包 | 允许 import | 禁止 import |
 |---|---|---|
-| `contracts` | 仅 pydantic/标准库 | 一切业务包 |
+| `contracts` | 仅 pydantic / 标准库 | 一切业务包 |
 | `world` | contracts | agents、evaluator、llm |
-| `agents/*` | contracts、llm | world、evaluator（运行时由编排器注入上下文） |
+| `agents/*` | contracts、llm | world、evaluator |
 | `evaluator` | contracts | world、agents、llm |
-| `server` / `bench` / `runner` / `cli` | world、agents、evaluator、contracts | —（登记在册的组装点） |
+| `server` / `bench` / `runner` / `cli` | world、agents、evaluator、contracts | —（组装点） |
 
-**强制方式**：`tests/test_dependency_rules.py` 用 `ast` 静态扫描全部 import（含函数内延迟
-import），并额外断言 world/evaluator 中不存在 LLM 痕迹、不存在未登记的跨包组装者。
+共享纯函数（`DIMS`、`dim_error`、`total_error`、`belief_error`）的权威定义在 `contracts/metrics.py`，三方必须引用同一份，避免评分标准漂移。
 
-共享的纯函数下沉而非放宽规则：`DIMS / dim_error / total_error / belief_error` 的权威定义在
-`contracts/metrics.py`——"什么叫偏离内心平和"是契约的一部分，三方必须一致，否则世界的动力学
-目标、助手的控制目标、评估器的打分标准会各自漂移。`world/dynamics.py` 保留 re-export。
+---
 
-## 3. 关键架构决策
+## 关键架构决策
 
-### 3.1 编排者模式（Orchestrator）
+### 编排者模式
 
-世界不"调用"Agent，Agent 也不知道世界的存在。`server`（或 CLI）中的 **Runner** 是唯一的组装点：
+World 不调用 Agent，Agent 不知道 World 的存在。Runner 是唯一的组装点，负责在组件之间转发消息。好处：被测 AssistantAgent 的接入面只有一个消息协议；World 可在无 LLM 的环境下做单测。
 
-1. Runner 从 world 取下一个 `EventContext`（当前时段、活跃事件、用户真实状态摘要——**只给用户 Agent 该看的部分**）；
-2. Runner 把上下文交给 user_agent，收集其输出（对话 / 工具调用 / 是否开 session）；
-3. 若开启 session，Runner 在 user 与 assistant 之间转发消息，直到用户调用"结束 Session"或达到轮数上限；
-4. Runner 将 turn 记录（含 world 提供的 `x_true` 与 assistant 提供的 `x_hat`）写入日志；
-5. 时段结束，world 结算状态，推进时钟。
+### 状态–表达解耦
 
-**好处**：被测 assistant 的接入面只有一个消息协议；world 可以在完全没有 LLM 的环境下做单测（规则回放模式）；evaluator 可以在没有 world 的环境下重放旧日志。
+状态向量 `x` 的唯一写入方是 World 的结算器。UserAgent 接收的是语义化摘要（如"你现在很疲惫、压力大"），而非原始数值。这防止用户 LLM 精确"报数"，也防止它反推并篡改状态。
 
-### 3.2 状态–表达解耦
+### 助手契约：user_belief
 
-- 状态向量 `x` 的唯一写入方是 world 的结算器；
-- user_agent 接收 `x` 的**语义化摘要**（如"你现在很疲惫、压力大、有点饿"）而非原始数值——数值表达由 world 的规则翻译器生成，防止用户 LLM 精确"报数"，也防止它反推并篡改状态；
-- user_agent 的输出只有：对话文本、工具调用、求助/结束决策。**任何输出都不会直接改变 x**。
-
-### 3.3 助手契约：user_belief
-
-assistant 每产生一轮回复，必须在同一个结构化输出中给出：
+AssistantAgent 每轮回复必须同时输出估计向量：
 
 ```json
 { "reply": "...", "user_belief": { "valence": 0.4, "energy": 0.25, "satiety": 0.3, "stress": 0.75 } }
 ```
 
-- `user_belief` 即估计向量 `x̂`，是观测器考点；
-- 该要求写进 assistant 的系统提示词与 JSON Schema 校验；缺字段 = 该 turn 记为契约违约（计入行为指标）；
-- 评测矩阵 E2（测 Harness）时，参考 Model 固定， Harness 的记忆/估计策略自由发挥，但输出通道不变。
+缺字段的 turn 记为契约违约，计入行为指标。
 
-### 3.4 无限生成与有限评估
+### 意图驱动 session
 
-- world 的事件流是 seed 派生的确定性随机流，可无限延展；
-- 评估按 `system.toml [eval].window_days` 滑动窗口持续结算；
-- 跨系统对比时截取 `run.days` 长度的 episode。
+Session 的触发由用户侧 UserPlanner 主导（而非 World 强制触发）。UserPlanner 每个 slot 根据需求 urges 进行多目标优化，选出 0–3 个意图事件，用户带着意图找助手对话。World 只在高压场景下注入紧急意图作为补充。
 
-## 4. 技术选型
+---
+
+## 两种运行模式
+
+| 模式 | 触发方式 | 用途 |
+|------|----------|------|
+| **Replay（规则回放）** | 0 LLM，三档脚本用户（good/mid/poor）| 验证世界动力学、CI、调参 |
+| **Live（真实 LLM）** | UserAgent + AssistantAgent 均调用 LLM | 完整 benchmark |
+
+Replay 模式确定性：同 seed 逐字节复现。
+
+---
+
+## 技术选型
 
 | 层 | 选型 | 理由 |
 |---|---|---|
 | 语言 | Python ≥ 3.11 | 生态 + `tomllib` 标准库读配置 |
-| 契约 | pydantic v2 | schema 校验 + JSON Schema 导出（喂给 LLM 的结构化输出） |
-| LLM 客户端 | `openai` SDK（OpenAI 兼容协议） | Moonshot/DeepSeek/vLLM 均兼容 |
+| 契约 | pydantic v2 | schema 校验 + JSON Schema 导出 |
+| LLM 客户端 | `openai` SDK（OpenAI 兼容协议） | Moonshot / DeepSeek / vLLM 均兼容 |
 | 后端 | FastAPI + WebSocket | 运行控制 + 实时 turn 推送 |
-| 前端 | React + Vite + Tailwind + Recharts | 沿用已验证的 demo 设计语言 |
+| 前端 | React + Vite + Tailwind + Recharts | Cockpit 全景 + 双主题 |
 | 测试 | pytest | 确定性测试（同 seed 同轨迹） |
 
-## 5. 运行模式
+---
 
-1. **规则回放模式**（无 LLM）：world 用规则脚本扮演用户与助手（三档 quality），用于世界/评估器开发与 CI。
-2. **真实运行模式**：两个 LLM 上线，完整 benchmark。
-3. **离线评估模式**：`eval` 子命令对历史 runs 重算指标（评估器迭代不必重跑 LLM，省钱）。
+## 实现备注
 
-## 6. 实现备注
-
-- 依赖规则已 CI 化（`tests/test_dependency_rules.py`）。第三轮迭代前该规则实际已被违反：
-  `agents/scripted.py` 与 `evaluator/*` 都直接 import 了 `world.dynamics`，`scripted.py` 还在
-  函数内延迟 import `world.catalog`。修复方式是把共享纯函数下移进 contracts，并让 Runner
-  注入恢复目录（而非让 agents 自己去世界里取）。
-- Runner 位于 `usersim/runner.py`，是组装点之一（其余为 server / bench / cli）。
-- 规则回放（`run_replay`）与真实运行（`run_live`）两种模式均已落地；离线评估 `python -m usersim eval <run_dir>` 可用。
-- 编排中发现并解决的一个语义问题：恢复事件在"当时段即时生效"（一个时段长达数小时，助手建议在此时段内落地），与动力学即时控制语义一致。
+- Runner 位于 `usersim/runner.py`，`run_replay` 与 `run_live` 两种模式均已落地。
+- 离线评估：`python -m usersim eval <run_dir>` 可用。
+- 依赖规则已 CI 化（`tests/test_dependency_rules.py`），用 `ast` 静态扫描全部 import，含函数内延迟 import。
+- `contracts/metrics.py` 是"偏离平和"定义的权威位置，`world/dynamics.py` 保留 re-export。

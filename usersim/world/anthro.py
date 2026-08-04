@@ -87,13 +87,21 @@ class Needs:
         return dict(self.n)
 
     def update(self, satiety: float, active_names: list[str], extraversion: int,
-               exam_active: bool, deadline_disturbance: bool) -> None:
+               exam_active: bool, deadline_disturbance: bool, slot: int = 1) -> None:
         n = self.n
         # 饥饿：直接由饱腹推导（低饱腹加速驱动）
         n["hunger"] = max(0.0, min(1.0, 1.0 - satiety))
+        # 生物钟：三餐时段前后饥饿驱动力额外放大（上午末/下午/晚间入口）
+        # slot 0=上午, 1=下午, 2=晚上, 3=深夜
+        meal_slots = (1, 2)  # 午饭/晚饭时段，饥饿驱动更迫切
+        if slot in meal_slots:
+            n["hunger"] = min(1.0, n["hunger"] * 1.2)
         # 社交：每时段累积，群居性高者更快；社交事件后释放
-        # （extraversion 由 world 传入 外向性.群居性 facet，缺失时为域分）
-        n["social"] = min(1.0, n["social"] + 0.01 * (1.6 if extraversion >= 60 else 1.0))
+        # 晚间社交需求稍高（下班后更想社交）
+        social_rate = 0.01 * (1.6 if extraversion >= 60 else 1.0)
+        if slot == 2:  # 晚上社交需求累积更快
+            social_rate *= 1.3
+        n["social"] = min(1.0, n["social"] + social_rate)
         if any(any(k in nm for k in SOCIAL_EVENTS) for nm in active_names):
             n["social"] = max(0.1, n["social"] - 0.5)
         # 刺激：向无聊基线回落，新异事件提升

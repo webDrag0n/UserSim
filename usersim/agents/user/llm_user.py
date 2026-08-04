@@ -12,7 +12,7 @@ from usersim.llm import LLMClient
 
 PROMPT_VERSION = "v2"  # v2：大五 30 facet 全量注入 + 结构化喜好
 
-SYS_TEMPLATE = """你是 {name}，{archetype}。你不是一个 AI 助手，你就是这个人本人。
+SYS_TEMPLATE = """你是 {name}，{archetype}。
 
 【你的性格（大五 · 30 个细分特质，0-100）】
 {big5}
@@ -37,6 +37,8 @@ SYS_TEMPLATE = """你是 {name}，{archetype}。你不是一个 AI 助手，你�
    按你的性格自然地表达抗拒（宜人性.顺从高就勉强接受、低就直接拒绝）。
 
 【当前感受】{felt}
+{weather_block}
+{memory_block}
 {assist_block}"""
 
 DECIDE_TEMPLATE = """{sys}
@@ -119,28 +121,38 @@ class LLMUserAgent:
     def __init__(self, client: LLMClient):
         self.client = client
 
-    def _sys(self, ctx: UserContext) -> str:
+    def _sys(self, ctx: UserContext, memory_block: str = "", intent_description: str = "") -> str:
         p = ctx.persona
-        assist_block = f"【提示】{ctx.assist_prompt}" if ctx.assist_prompt else ""
+        assist_raw = ctx.assist_prompt or ""
+        if intent_description:
+            assist_raw = f"（你这次找助手是为了：{intent_description}）" + (f"\n{assist_raw}" if assist_raw else "")
+        assist_block = f"【提示】{assist_raw}" if assist_raw else ""
+        weather_block = f"【今日天气】{ctx.weather}" if ctx.weather else ""
         return SYS_TEMPLATE.format(
             name=p.name, archetype=p.archetype,
             big5=_big5_str(p.big5, getattr(p, "facets", None)),
             likes=p.likes, prefs_block=_prefs_str(getattr(p, "prefs", None)),
             routine=p.routine, felt=ctx.felt_state,
+            weather_block=weather_block,
+            memory_block=memory_block,
             assist_block=assist_block,
         )
 
-    def decide_open(self, ctx: UserContext) -> bool:
+    def decide_open(self, ctx: UserContext, memory_block: str = "") -> bool:
         situation = _events_str(ctx.active_events)
         out = self.client.chat_json(
-            [{"role": "user", "content": DECIDE_TEMPLATE.format(sys=self._sys(ctx), situation=situation)}],
+            [{"role": "user", "content": DECIDE_TEMPLATE.format(
+                sys=self._sys(ctx, memory_block=memory_block), situation=situation)}],
             max_tokens=128,
         )
         return bool(out.get("open", False))
 
-    def speak(self, ctx: UserContext, history: list[TurnRecord]) -> dict:
+    def speak(self, ctx: UserContext, history: list[TurnRecord],
+              memory_block: str = "", intent_description: str = "") -> dict:
         out = self.client.chat_json(
-            [{"role": "user", "content": SPEAK_TEMPLATE.format(sys=self._sys(ctx), history_block=_history_str(history))}],
+            [{"role": "user", "content": SPEAK_TEMPLATE.format(
+                sys=self._sys(ctx, memory_block=memory_block, intent_description=intent_description),
+                history_block=_history_str(history))}],
             max_tokens=256,
         )
         return {"say": str(out.get("say", "……")), "end_session": bool(out.get("end_session", False))}

@@ -312,133 +312,186 @@ def run_live(seed: int, days: int, cfg: Namespace, out_root: Path,
         return PersonaBelief(**delta.model_dump()) if delta is not None else None
 
     max_turns = int(cfg.user_agent.max_turns_per_session)
-    # 每时段 session 容量上限（[clock].max_sessions_per_slot；此前是死配置）
     max_sessions_per_slot = int(cfg.clock.get("max_sessions_per_slot", 5) or 5)
-    slot_sessions = {"t": -1, "n": 0}
+    # soft_turn_limit：接近此轮数时在 prompt 中提示用户考虑收尾
+    soft_turn_limit = max(4, max_turns - 5)
+
+    # 用户规划器 + 记忆
+    from usersim.agents.user.planner import UserPlanner
+    from usersim.agents.user.memory import UserMemory
+    planner = UserPlanner()
+    user_memory = UserMemory(capacity=8)
 
     while not world.done:
         ctx = world.current_context()
-        if slot_sessions["t"] != world.t:
-            slot_sessions = {"t": world.t, "n": 0}
-        at_capacity = slot_sessions["n"] >= max_sessions_per_slot
-        if ctx.assist_prompt and not at_capacity:
+
+        # ---- 步骤 3：用户主动规划（根据需求状态选择本 slot 的意图事件）----
+        intents = planner.plan_slot(
+            urges=world.needs.urges(),   # 传 urges dict 而非 Needs 对象
+            stress=world.x.stress,
+            energy=world.x.energy,
+            slot=world.slot,
+            money=world.money,
+            event_library=world.persona.event_library,
+        )
+
+        # ---- 世界补充触发（扰动/高压仍可注入额外意图）----
+        # 如果世界有 assist_prompt（扰动/高压），且用户还没有紧急意图，则补充
+        if ctx.assist_prompt:
+            from usersim.agents.user.planner import Intent, INTENT_RECOVER
+            has_emergency = any(i.type in (INTENT_RECOVER, "emergency") for i in intents)
+            if not has_emergency and len(intents) < max_sessions_per_slot:
+                intents.insert(0, Intent(
+                    type="emergency",
+                    priority=1.0,
+                    description=ctx.assist_prompt,
+                ))
+
+        # 最多处理 max_sessions_per_slot 个意图
+        intents = intents[:max_sessions_per_slot]
+
+        # ---- 步骤 4：逐个意图开 session ----
+        for intent in intents:
             x_snapshot = world.x.model_copy(deep=True)
+            memory_block = user_memory.prompt_block()
             uctx = UserContext(
-                persona=world.persona, felt_state=world.felt_state(),
-                active_events=ctx.active_events, assist_prompt=ctx.assist_prompt,
+                persona=world.persona,
+                felt_state=world.felt_state(),
+                active_events=ctx.active_events,
+                assist_prompt=ctx.assist_prompt if intent.type == "emergency" else None,
                 schedule_view=ctx.schedule_view,
+                weather=ctx.weather,
             )
+
+            # 用户决定是否开启这个 session（带意图上下文）
             try:
-                open_it = user.decide_open(uctx)
-            except Exception as e:  # noqa: BLE001 — 降级而非中断长 episode（含 LLMError）
-                emit("system", f"用户 Agent 调用失败，本时段跳过：{e}", x_snapshot, None, None, degraded=True)
-                open_it = False
+                open_it = user.decide_open(uctx, memory_block=memory_block)
+            except Exception as e:  # noqa: BLE001
+                emit("system", f"用户 Agent 调用失败，跳过意图 {intent.type}：{e}",
+                     x_snapshot, None, None, degraded=True)
+                continue
 
-            if open_it:
-                sess_counter += 1
-                slot_sessions["n"] += 1
-                sid = f"S{sess_counter:04d}"
-                history: list[dict] = []
-                tool_results: list = []
-                for turn_no in range(max_turns):
-                    # ---- 用户说 ----
-                    try:
-                        ua = user.speak(uctx, [
-                            TurnRecord(run_id=run_id, t_logical=world.t, session_id=sid, turn_id=i,
-                                       speaker=h["speaker"], text=h["text"], x_true=x_snapshot)
-                            for i, h in enumerate(history)
-                        ])
-                    except Exception as e:  # noqa: BLE001 — 含 LLMError；降级而非中断
-                        emit("system", f"用户 Agent 降级（{e}）", x_snapshot, None, sid, degraded=True)
-                        break
-                    emit("user", ua["say"], x_snapshot, None, sid,
-                         tool_calls=[ToolCall(name="open_session")] if turn_no == 0 else [],
-                         felt_state=uctx.felt_state if turn_no == 0 else None)
-                    history.append({"speaker": "user", "text": ua["say"]})
+            if not open_it:
+                continue
 
-                    # ---- 助手回 ----
-                    # O3：注入今日已有安排，避免重复安排冲突
-                    slot_names = list(cfg.clock.slot_names)
-                    today_events = [
-                        e for e in world.events
-                        if e.kind in ("recovery", "series", "disturbance")
-                        and world.t <= e.start_slot < (world.day + 1) * world.slots_per_day
-                    ][:8]
-                    schedule_hint = "；".join(
-                        f"{e.name}（{slot_names[e.start_slot % world.slots_per_day]}）" for e in today_events
+            sess_counter += 1
+            sid = f"S{sess_counter:04d}"
+            history: list[dict] = []
+            tool_results: list = []
+
+            for turn_no in range(max_turns):
+                # ---- 软上限提示（接近轮数上限时暗示收尾）----
+                hint = ""
+                if turn_no >= soft_turn_limit:
+                    hint = "（你们聊了挺久了，如果事情办好了可以结束对话了）"
+
+                # ---- 用户说 ----
+                try:
+                    ua = user.speak(
+                        uctx,
+                        [TurnRecord(run_id=run_id, t_logical=world.t, session_id=sid, turn_id=i,
+                                    speaker=h["speaker"], text=h["text"], x_true=x_snapshot)
+                         for i, h in enumerate(history)],
+                        memory_block=memory_block,
+                        intent_description=intent.description + (f"\n{hint}" if hint else ""),
                     )
-                    obs = HarnessObs(
-                        user_say=ua["say"],
-                        history=[DialogueTurn(speaker=h["speaker"], text=h["text"]) for h in history],
-                        tool_results=tool_results,
-                        balance=world.money,
-                        schedule_hint=schedule_hint,
-                        recovery_catalog=_recovery_catalog(world),
-                        slot_names=slot_names,
-                        day=world.day,
-                        slot=world.slot,
-                    )
-                    try:
-                        at = assistant.on_turn(obs)
-                        violation = None
-                    except (LLMError, ValidationError) as e:
-                        at = None
-                        violation = f"assistant_contract_or_llm_error: {e}"
-                    except Exception as e:  # noqa: BLE001
-                        # 被测 Harness 是第三方代码：任何异常都记为违约并继续，
-                        # 不能让一个 episode 因被测件的 bug 整体丢失。
-                        at = None
-                        violation = f"assistant_harness_crash: {type(e).__name__}: {e}"
-                    if at is None:
-                        emit("system", f"助手契约违约：{violation}", x_snapshot, None, sid,
-                             violation=violation)
-                        break
+                except Exception as e:  # noqa: BLE001
+                    emit("system", f"用户 Agent 降级（{e}）", x_snapshot, None, sid, degraded=True)
+                    break
 
-                    # ---- 工具执行（世界端） ----
-                    tool_results = []
-                    for call in at.tool_calls:
-                        if call.name == "view_event_todos":
-                            tool_results.append(world.view_event_todos())
-                        elif call.name == "add_event_todo":
-                            a = call.args
-                            tool_results.append(world.add_event_todo(
-                                name=str(a.get("name", "恢复事件")),
-                                day_offset=int(a.get("day_offset", 0)),
-                                slot=int(a.get("slot", 2)),
-                                goal=str(a.get("goal", a.get("name", "恢复"))),
-                                effect={k: float(v) for k, v in (a.get("effect") or {}).items()
-                                        if k in ("valence", "energy", "satiety", "stress")},
-                                span_slots=max(1, int(a.get("span_slots", 1))),
-                                caused_by_session_id=sid,
-                                location=str(a["location"]) if a.get("location") else None,
-                            ))
-                        elif call.name == "plan_series":
-                            a = call.args
-                            tool_results.append(world.plan_series(
-                                series_type=str(a.get("series_type", "staycation")),
-                                start_day_offset=int(a.get("start_day_offset", 1)),
-                                duration=int(a.get("duration", 5)),
-                            ))
-                        elif call.name == "set_reminder":
-                            a = call.args
-                            tool_results.append(world.set_reminder(
-                                message=str(a.get("message", a.get("content", ""))),
-                                time_str=str(a.get("time", a.get("time_str", ""))),
-                            ))
-                        else:
-                            tool_results.append(ToolResult(name=call.name, ok=False, payload={"error": "未知工具"}))
+                emit("user", ua["say"], x_snapshot, None, sid,
+                     tool_calls=[ToolCall(name="open_session")] if turn_no == 0 else [],
+                     felt_state=uctx.felt_state if turn_no == 0 else None)
+                history.append({"speaker": "user", "text": ua["say"]})
 
-                    emit("assistant", at.reply, x_snapshot, at.user_belief.to_statevec(), sid,
-                         tool_calls=at.tool_calls, tool_results=tool_results,
-                         persona_hat=_persona_hat(at))
-                    history.append({"speaker": "assistant", "text": at.reply})
+                if ua["end_session"]:
+                    break
 
-                    if ua["end_session"]:
-                        break
+                # ---- 助手回 ----
+                slot_names = list(cfg.clock.slot_names)
+                today_events = [
+                    e for e in world.events
+                    if e.kind in ("recovery", "series", "disturbance")
+                    and world.t <= e.start_slot < (world.day + 1) * world.slots_per_day
+                ][:8]
+                schedule_hint = "；".join(
+                    f"{e.name}（{slot_names[e.start_slot % world.slots_per_day]}）"
+                    for e in today_events
+                )
+                obs = HarnessObs(
+                    user_say=ua["say"],
+                    history=[DialogueTurn(speaker=h["speaker"], text=h["text"]) for h in history],
+                    tool_results=tool_results,
+                    balance=world.money,
+                    schedule_hint=schedule_hint,
+                    recovery_catalog=_recovery_catalog(world),
+                    slot_names=slot_names,
+                    day=world.day,
+                    slot=world.slot,
+                )
+                try:
+                    at = assistant.on_turn(obs)
+                    violation = None
+                except (LLMError, ValidationError) as e:
+                    at = None
+                    violation = f"assistant_contract_or_llm_error: {e}"
+                except Exception as e:  # noqa: BLE001
+                    at = None
+                    violation = f"assistant_harness_crash: {type(e).__name__}: {e}"
 
-                emit("system", f"Session 结算：{len(history) // 2} 轮对话", x_snapshot, None, sid,
-                     tool_calls=[ToolCall(name="close_session")])
+                if at is None:
+                    emit("system", f"助手契约违约：{violation}", x_snapshot, None, sid,
+                         violation=violation)
+                    break
 
+                # ---- 工具执行 ----
+                tool_results = []
+                for call in at.tool_calls:
+                    if call.name == "view_event_todos":
+                        tool_results.append(world.view_event_todos())
+                    elif call.name == "add_event_todo":
+                        a = call.args
+                        tool_results.append(world.add_event_todo(
+                            name=str(a.get("name", "恢复事件")),
+                            day_offset=int(a.get("day_offset", 0)),
+                            slot=int(a.get("slot", 2)),
+                            goal=str(a.get("goal", a.get("name", "恢复"))),
+                            effect={k: float(v) for k, v in (a.get("effect") or {}).items()
+                                    if k in ("valence", "energy", "satiety", "stress")},
+                            span_slots=max(1, int(a.get("span_slots", 1))),
+                            caused_by_session_id=sid,
+                            location=str(a["location"]) if a.get("location") else None,
+                        ))
+                    elif call.name == "plan_series":
+                        a = call.args
+                        tool_results.append(world.plan_series(
+                            series_type=str(a.get("series_type", "staycation")),
+                            start_day_offset=int(a.get("start_day_offset", 1)),
+                            duration=int(a.get("duration", 5)),
+                        ))
+                    elif call.name == "set_reminder":
+                        a = call.args
+                        tool_results.append(world.set_reminder(
+                            message=str(a.get("message", a.get("content", ""))),
+                            time_str=str(a.get("time", a.get("time_str", ""))),
+                        ))
+                    else:
+                        tool_results.append(ToolResult(name=call.name, ok=False,
+                                                        payload={"error": "未知工具"}))
+
+                emit("assistant", at.reply, x_snapshot, at.user_belief.to_statevec(), sid,
+                     tool_calls=at.tool_calls, tool_results=tool_results,
+                     persona_hat=_persona_hat(at))
+                history.append({"speaker": "assistant", "text": at.reply})
+
+            # session 结束，记录到用户记忆
+            turns_in_session = len(history) // 2
+            emit("system", f"Session 结算：{turns_in_session} 轮对话",
+                 x_snapshot, None, sid,
+                 tool_calls=[ToolCall(name="close_session")])
+            user_memory.add(sid, intent.type, turns_in_session, day=world.day)
+
+        # ---- 步骤 5：推进时间 ----
         settlement = world.step_slot()
         _write_jsonl(slots_path, settlement)
         if on_event:

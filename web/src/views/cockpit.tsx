@@ -11,6 +11,48 @@ import { AnimatedNumber, PlainCard } from '../components/ui'
 // 由单一时间游标 curT 驱动，三栏同步，因果链高亮。
 // ============================================================
 
+// 天气图标映射
+const WEATHER_ICONS: Record<string, { icon: string; color: string }> = {
+  '晴': { icon: '☀️', color: '#f59e0b' },
+  '多云': { icon: '⛅', color: '#94a3b8' },
+  '阴': { icon: '☁️', color: '#64748b' },
+  '小雨': { icon: '🌧️', color: '#3b82f6' },
+  '暴雨': { icon: '⛈️', color: '#6366f1' },
+}
+
+// 意图类型映射
+const INTENT_META: Record<string, { label: string; color: string }> = {
+  eat: { label: '🍽️ 进餐', color: 'var(--satiety)' },
+  social: { label: '👥 社交', color: 'var(--energy)' },
+  stimulate: { label: '✨ 找乐子', color: 'var(--valence)' },
+  recover: { label: '😌 恢复', color: 'var(--good)' },
+  sleep: { label: '😴 睡觉', color: 'var(--series)' },
+  achieve: { label: '📚 做正事', color: 'var(--stress)' },
+  emergency: { label: '🚨 紧急', color: 'var(--critical)' },
+}
+
+function WeatherBadge({ weather }: { weather?: string | null }) {
+  if (!weather) return null
+  const meta = WEATHER_ICONS[weather] ?? { icon: '🌤️', color: '#94a3b8' }
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium"
+      style={{ background: 'var(--hover)', color: meta.color }}>
+      {meta.icon} {weather}
+    </span>
+  )
+}
+
+function IntentBadge({ intentType }: { intentType?: string | null }) {
+  if (!intentType) return null
+  const meta = INTENT_META[intentType] ?? { label: intentType, color: 'var(--text-2)' }
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium"
+      style={{ background: 'var(--hover)', color: meta.color }}>
+      {meta.label}
+    </span>
+  )
+}
+
 const ACTION_META: Record<string, { icon: string; label: string; cssVar: string }> = {
   add_event_todo: { icon: '🍽', label: '写入日程', cssVar: '--good' },
   plan_series: { icon: '🗺', label: '规划系列', cssVar: '--series' },
@@ -158,6 +200,10 @@ export default function Cockpit(p: CockpitProps) {
         <motion.div {...cellAnim} className="rounded-2xl border border-edge bg-surface p-4">
           <SectionTitle dot="var(--satiety)">系统 · 世界</SectionTitle>
           <div className="space-y-1.5 text-[11px] mb-3">
+            <div className="flex justify-between items-center">
+              <span className="text-t3">天气</span>
+              <WeatherBadge weather={curSlot?.weather} />
+            </div>
             <div className="flex justify-between"><span className="text-t3">系列事件</span>
               <span style={{ color: 'var(--series)' }}>{curSlot?.active_series ?? '无'}</span></div>
             <div className="flex justify-between"><span className="text-t3">余额</span>

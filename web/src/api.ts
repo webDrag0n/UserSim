@@ -41,6 +41,7 @@ export interface Slot {
   natural_drift: Record<string, number>; event_effects: Record<string, number>
   control_effects: Record<string, number>; active_event_ids: string[]
   money_before: number; money_after: number; active_series?: string | null
+  weather?: string | null  // 当前天气（晴/多云/阴/小雨/暴雨）
 }
 export interface RunEvent {
   id: string; kind: 'template' | 'disturbance' | 'recovery' | 'series'; name: string
