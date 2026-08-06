@@ -1,0 +1,9 @@
+{
+  "satiety_drain_per_slot": 0.075,
+  "work_stress_per_slot": 0.04,
+  "work_energy_drain": 0.06,
+  "rest_stress_relief": 0.015,
+  "rebound_threshold": 0.12,
+  "rebound_multiplier": 2.0,
+  "valence_coupling_rate": 0.25
+}

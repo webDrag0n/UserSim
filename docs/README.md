@@ -240,7 +240,7 @@ pytest -q -m slow    # 量程守护慢测试（27 个 30 天回放 episode）
 | 01 | [world](01-world.md) | 世界模拟器：状态向量、天气、需求动力学、事件引擎、结算器 | 已实现 |
 | 02 | [user-agent](02-user-agent.md) | 用户 Agent：LLM 驱动 / 脚本模式、规划器、记忆、prompt 结构 | 已实现 |
 | 03 | [assistant-agent](03-assistant-agent.md) | 助手 Agent / Harness 契约、user_belief 输出、接入规范 | 已实现 |
-| 04 | [evaluator](04-evaluator.md) | 评估器：控制论指标、判定规则、报告产物 | 已实现 |
+| 04 | [evaluator](04-evaluator.md) | 评估方法论：三层解耦（世界仿真/用户Agent/助手Agent）、控制论指标、行为一致性M1-M5、画像精度、健康分与判定规则、模型对比协议 | 已实现 |
 | 05 | [contracts](05-contracts.md) | 跨组件数据契约（消息 schema 全集） | 已实现 |
 | 06 | [frontend](06-frontend.md) | 前端页面结构、后端 API / WebSocket、可视化设计 | 已实现 |
 | 08 | [event-catalog](08-event-catalog.md) | 事件配表（动作×地点×时长）与经济系统 | 已实现 |

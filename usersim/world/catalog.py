@@ -222,7 +222,7 @@ def _ov() -> dict:
 
 def get_recovery_actions() -> list[dict]:
     acts = _ov().get("recovery_actions") or RECOVERY_ACTIONS
-    # 确保每个 variant 有合计 effect（Excel 行可能只有 base/weight）
+    # 确保每个 variant 有合计 effect（JSON 行可能只有 base/weight）
     for a in acts:
         for v in a["variants"]:
             if "effect" not in v or not v["effect"]:
@@ -236,6 +236,22 @@ def get_disturbances() -> list[dict]:
 
 def get_economy() -> dict:
     return {**ECONOMY, **_ov().get("economy_params", {})}
+
+
+def get_meal_tiers() -> list[dict]:
+    return _ov().get("meal_tiers") or MEAL_TIERS
+
+
+def get_sleep_tiers() -> list[dict]:
+    return _ov().get("sleep_tiers") or SLEEP_TIERS
+
+
+def get_custom_activities() -> list[dict]:
+    return _ov().get("custom_activities") or CUSTOM_ACTIVITIES
+
+
+def get_professions() -> list[dict]:
+    return _ov().get("professions") or PROFESSIONS
 
 
 # 常见口语别名 → 变体 ID（LLM 自由措辞也能命中配表）

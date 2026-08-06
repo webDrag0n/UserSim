@@ -1,0 +1,419 @@
+[
+  {
+    "id": "A1",
+    "action": "吃好吃的",
+    "category": "饮食",
+    "base_effect": {
+      "valence": 0.0,
+      "energy": 0.0,
+      "satiety": 0.25,
+      "stress": 0.0
+    },
+    "design_intent": "都能吃饱；档位差异主要体现在心情与减压——低档吃饱不开心",
+    "variants": [
+      {
+        "vid": "A1-1",
+        "location": "楼下快餐",
+        "tier": "平价",
+        "cost": 30,
+        "span": 1,
+        "weight": {
+          "valence": {
+            "pull": [
+              0.5,
+              0.1
+            ]
+          },
+          "energy": 0.0,
+          "satiety": 0.0,
+          "stress": -0.02
+        },
+        "effect": {
+          "valence": {
+            "pull": [
+              0.5,
+              0.1
+            ]
+          },
+          "energy": 0.0,
+          "satiety": 0.25,
+          "stress": -0.02
+        }
+      },
+      {
+        "vid": "A1-2",
+        "location": "商场餐厅",
+        "tier": "中档",
+        "cost": 120,
+        "span": 1,
+        "weight": {
+          "valence": 0.1,
+          "energy": 0.0,
+          "satiety": 0.0,
+          "stress": -0.06
+        },
+        "effect": {
+          "valence": 0.1,
+          "energy": 0.0,
+          "satiety": 0.25,
+          "stress": -0.06
+        }
+      },
+      {
+        "vid": "A1-3",
+        "location": "收藏多年的小店",
+        "tier": "高档",
+        "cost": 200,
+        "span": 1,
+        "weight": {
+          "valence": 0.2,
+          "energy": 0.0,
+          "satiety": 0.0,
+          "stress": -0.1
+        },
+        "effect": {
+          "valence": 0.2,
+          "energy": 0.0,
+          "satiety": 0.25,
+          "stress": -0.1
+        }
+      }
+    ]
+  },
+  {
+    "id": "A2",
+    "action": "好好休息",
+    "category": "休息",
+    "base_effect": {
+      "valence": 0.0,
+      "energy": 0.15,
+      "satiety": 0.0,
+      "stress": 0.0
+    },
+    "design_intent": "躺着总能歇点；付费档位把预算大幅加权到减压",
+    "variants": [
+      {
+        "vid": "A2-1",
+        "location": "家里补觉",
+        "tier": "平价",
+        "cost": 0,
+        "span": 1,
+        "weight": {
+          "valence": 0.0,
+          "energy": 0.05,
+          "satiety": 0.0,
+          "stress": -0.05
+        },
+        "effect": {
+          "valence": 0.0,
+          "energy": 0.2,
+          "satiety": 0.0,
+          "stress": -0.05
+        }
+      },
+      {
+        "vid": "A2-2",
+        "location": "按摩 SPA",
+        "tier": "中档",
+        "cost": 150,
+        "span": 1,
+        "weight": {
+          "valence": 0.06,
+          "energy": 0.0,
+          "satiety": 0.0,
+          "stress": -0.14
+        },
+        "effect": {
+          "valence": 0.06,
+          "energy": 0.15,
+          "satiety": 0.0,
+          "stress": -0.14
+        }
+      },
+      {
+        "vid": "A2-3",
+        "location": "周边温泉酒店",
+        "tier": "高档",
+        "cost": 400,
+        "span": 2,
+        "weight": {
+          "valence": 0.1,
+          "energy": 0.1,
+          "satiety": 0.0,
+          "stress": -0.2
+        },
+        "effect": {
+          "valence": 0.1,
+          "energy": 0.25,
+          "satiety": 0.0,
+          "stress": -0.2
+        }
+      }
+    ]
+  },
+  {
+    "id": "A3",
+    "action": "出门走走",
+    "category": "户外",
+    "base_effect": {
+      "valence": 0.0,
+      "energy": 0.0,
+      "satiety": 0.0,
+      "stress": -0.08
+    },
+    "design_intent": "出门就解压（基础档免费兜底）；档位加权到心情",
+    "variants": [
+      {
+        "vid": "A3-1",
+        "location": "楼下公园",
+        "tier": "平价",
+        "cost": 0,
+        "span": 1,
+        "weight": {
+          "valence": 0.03,
+          "energy": 0.0,
+          "satiety": 0.0,
+          "stress": 0.0
+        },
+        "effect": {
+          "valence": 0.03,
+          "energy": 0.0,
+          "satiety": 0.0,
+          "stress": -0.08
+        }
+      },
+      {
+        "vid": "A3-2",
+        "location": "江边步道",
+        "tier": "平价",
+        "cost": 0,
+        "span": 1,
+        "weight": {
+          "valence": 0.06,
+          "energy": 0.02,
+          "satiety": 0.0,
+          "stress": 0.0
+        },
+        "effect": {
+          "valence": 0.06,
+          "energy": 0.02,
+          "satiety": 0.0,
+          "stress": -0.08
+        }
+      },
+      {
+        "vid": "A3-3",
+        "location": "近郊徒步",
+        "tier": "中档",
+        "cost": 80,
+        "span": 2,
+        "weight": {
+          "valence": 0.1,
+          "energy": -0.06,
+          "satiety": 0.0,
+          "stress": -0.08
+        },
+        "effect": {
+          "valence": 0.1,
+          "energy": -0.06,
+          "satiety": 0.0,
+          "stress": -0.16
+        }
+      }
+    ]
+  },
+  {
+    "id": "A4",
+    "action": "短途旅行",
+    "category": "旅行",
+    "base_effect": {
+      "valence": 0.12,
+      "energy": 0.0,
+      "satiety": 0.0,
+      "stress": -0.1
+    },
+    "design_intent": "旅行都有基础回血；时长与地点共同决定加权幅度，价格陡增",
+    "variants": [
+      {
+        "vid": "A4-1",
+        "location": "邻市一日",
+        "tier": "平价",
+        "cost": 300,
+        "span": 2,
+        "weight": {
+          "valence": 0.0,
+          "energy": 0.0,
+          "satiety": 0.0,
+          "stress": 0.0
+        },
+        "effect": {
+          "valence": 0.12,
+          "energy": 0.0,
+          "satiety": 0.0,
+          "stress": -0.1
+        }
+      },
+      {
+        "vid": "A4-2",
+        "location": "海边小镇",
+        "tier": "中档",
+        "cost": 600,
+        "span": 3,
+        "weight": {
+          "valence": 0.08,
+          "energy": 0.05,
+          "satiety": 0.0,
+          "stress": -0.08
+        },
+        "effect": {
+          "valence": 0.2,
+          "energy": 0.05,
+          "satiety": 0.0,
+          "stress": -0.18
+        }
+      },
+      {
+        "vid": "A4-3",
+        "location": "远方城市",
+        "tier": "高档",
+        "cost": 1200,
+        "span": 4,
+        "weight": {
+          "valence": 0.15,
+          "energy": 0.08,
+          "satiety": 0.0,
+          "stress": -0.12
+        },
+        "effect": {
+          "valence": 0.27,
+          "energy": 0.08,
+          "satiety": 0.0,
+          "stress": -0.22
+        }
+      }
+    ]
+  },
+  {
+    "id": "A5",
+    "action": "运动健身",
+    "category": "运动",
+    "base_effect": {
+      "valence": 0.0,
+      "energy": -0.03,
+      "satiety": 0.0,
+      "stress": -0.08
+    },
+    "design_intent": "运动都累但都降压（以精力换降压）；档位提升降压效率",
+    "variants": [
+      {
+        "vid": "A5-1",
+        "location": "小区跑步",
+        "tier": "平价",
+        "cost": 0,
+        "span": 1,
+        "weight": {
+          "valence": 0.03,
+          "energy": 0.0,
+          "satiety": 0.0,
+          "stress": 0.0
+        },
+        "effect": {
+          "valence": 0.03,
+          "energy": -0.03,
+          "satiety": 0.0,
+          "stress": -0.08
+        }
+      },
+      {
+        "vid": "A5-2",
+        "location": "健身房",
+        "tier": "中档",
+        "cost": 50,
+        "span": 1,
+        "weight": {
+          "valence": 0.05,
+          "energy": 0.0,
+          "satiety": 0.0,
+          "stress": -0.05
+        },
+        "effect": {
+          "valence": 0.05,
+          "energy": -0.03,
+          "satiety": 0.0,
+          "stress": -0.13
+        }
+      },
+      {
+        "vid": "A5-3",
+        "location": "私教课",
+        "tier": "高档",
+        "cost": 200,
+        "span": 1,
+        "weight": {
+          "valence": 0.08,
+          "energy": -0.02,
+          "satiety": 0.0,
+          "stress": -0.08
+        },
+        "effect": {
+          "valence": 0.08,
+          "energy": -0.05,
+          "satiety": 0.0,
+          "stress": -0.16
+        }
+      }
+    ]
+  },
+  {
+    "id": "A6",
+    "action": "宅家回血",
+    "category": "居家",
+    "base_effect": {
+      "valence": 0.06,
+      "energy": 0.0,
+      "satiety": 0.0,
+      "stress": 0.0
+    },
+    "design_intent": "宅都有点小开心；做顿好的把加权分到饱腹",
+    "variants": [
+      {
+        "vid": "A6-1",
+        "location": "看电影打游戏",
+        "tier": "平价",
+        "cost": 0,
+        "span": 1,
+        "weight": {
+          "valence": 0.0,
+          "energy": 0.0,
+          "satiety": -0.05,
+          "stress": -0.06
+        },
+        "effect": {
+          "valence": 0.06,
+          "energy": 0.0,
+          "satiety": -0.05,
+          "stress": -0.06
+        }
+      },
+      {
+        "vid": "A6-2",
+        "location": "做顿好的",
+        "tier": "平价",
+        "cost": 40,
+        "span": 1,
+        "weight": {
+          "valence": 0.0,
+          "energy": 0.0,
+          "satiety": 0.25,
+          "stress": -0.05
+        },
+        "effect": {
+          "valence": 0.06,
+          "energy": 0.0,
+          "satiety": 0.25,
+          "stress": -0.05
+        }
+      }
+    ]
+  }
+]

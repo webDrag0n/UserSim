@@ -1,0 +1,72 @@
+[
+  {
+    "id": "D1",
+    "name": "临时加班",
+    "location": "公司",
+    "cost": 0.0,
+    "income": 150.0,
+    "effect": {
+      "valence": -0.08,
+      "energy": -0.16,
+      "satiety": 0.0,
+      "stress": 0.2
+    },
+    "design_intent": "最常见强扰动：钱换命（有收入但状态大损）"
+  },
+  {
+    "id": "D2",
+    "name": "应酬饭局",
+    "location": "餐厅",
+    "cost": 100.0,
+    "income": 0.0,
+    "effect": {
+      "valence": 0.0,
+      "energy": -0.12,
+      "satiety": 0.15,
+      "stress": 0.1
+    },
+    "design_intent": "花钱还受累的中等扰动（但确实吃饱了）"
+  },
+  {
+    "id": "D3",
+    "name": "暴雨行程受阻",
+    "location": "路上",
+    "cost": 0.0,
+    "income": 0.0,
+    "effect": {
+      "valence": -0.12,
+      "energy": 0.0,
+      "satiety": 0.0,
+      "stress": 0.09
+    },
+    "design_intent": "轻扰动，主要打乱心情"
+  },
+  {
+    "id": "D4",
+    "name": "项目截止压缩",
+    "location": "公司",
+    "cost": 0.0,
+    "income": 0.0,
+    "effect": {
+      "valence": -0.06,
+      "energy": -0.1,
+      "satiety": 0.0,
+      "stress": 0.24
+    },
+    "design_intent": "最强压力扰动"
+  },
+  {
+    "id": "D5",
+    "name": "朋友临时邀约",
+    "location": "外面",
+    "cost": 80.0,
+    "income": 0.0,
+    "effect": {
+      "valence": 0.1,
+      "energy": -0.08,
+      "satiety": 0.1,
+      "stress": 0.0
+    },
+    "design_intent": "难得的正面扰动，但有金钱与精力代价"
+  }
+]

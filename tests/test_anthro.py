@@ -86,6 +86,69 @@ def test_satisfaction_curve_hungry_eats_better():
     assert hungry > full > 1.0  # 越饿吃得越香，且都有基础效果
 
 
+def test_needs_formula_override():
+    n = Needs()
+    overrides = {
+        "needs": {
+            "饥饿": {"urge_curve": "x**3", "satisfy_curve": "1+2*u"},
+        }
+    }
+    n.n["hunger"] = 0.5
+    # 配置的 x**3 应小于默认的 (x/0.6)**1.5
+    configured = n.urges(overrides)["hunger"]
+    default = n.urges()["hunger"]
+    assert configured == 0.5 ** 3
+    assert configured < default
+
+    # satisfy_curve 覆盖
+    n.n["hunger"] = 0.5
+    sat = n.satisfaction("吃好吃的", overrides)
+    assert abs(sat - (1 + 2 * configured)) < 1e-9
+
+
+def test_persona_modulation_formula():
+    big5 = {"外向性": 80, "神经质": 50, "开放性": 50}
+    eff = {"energy": 0.1}
+    # 默认公式：1 + 1.2*E，E=0.8 → 1.96
+    default = persona_modifiers(big5, "朋友小聚", eff)
+    assert abs(default["energy"] - 0.1 * 1.96) < 1e-9
+
+    # 配置公式覆盖
+    overrides = {
+        "persona_mod": {
+            "外向性": {"formula": "1 + 2*E"},
+        }
+    }
+    overridden = persona_modifiers(big5, "朋友小聚", eff, overrides=overrides)
+    assert abs(overridden["energy"] - 0.1 * 2.6) < 1e-9
+
+
+def test_persona_modulation_big5():
+    big5 = {"外向性": 80, "神经质": 50, "开放性": 50, "尽责性": 80, "宜人性": 80}
+    # 工作类负面压力：尽责性 C=0.8，默认公式 1-0.3*C=0.76
+    work = {"stress": -0.1}
+    mod = persona_modifiers(big5, "工作推进", work)
+    assert abs(mod["stress"] - (-0.1 * 0.76)) < 1e-9
+
+    # 社交正面心情：宜人性 A=0.8，默认公式 1+0.3*A=1.24；高热情额外 +0.03
+    social = {"valence": 0.1}
+    mod = persona_modifiers(big5, "朋友小聚", social)
+    assert abs(mod["valence"] - (0.1 * 1.24 + 0.03)) < 1e-9
+
+
+def test_needs_stimulation_formula_with_abs():
+    n = Needs()
+    overrides = {
+        "needs": {
+            "刺激": {"urge_curve": "1-(2*x-1)**2", "satisfy_curve": "0.6+0.8*(1-abs(2*x-1))"},
+        }
+    }
+    n.n["stimulation"] = 0.5
+    sat = n.satisfaction("看展", overrides)
+    # x=0.5, abs(2*0.5-1)=0, 所以 0.6+0.8*1=1.4
+    assert abs(sat - 1.4) < 1e-9
+
+
 def test_anthro_survives_snapshot():
     w = _world()
     w.add_event_todo("出门走走", 0, 0, "回血", {}, location="楼下公园")

@@ -68,6 +68,15 @@ export interface Report {
   persona_err_final: number; persona_err_slope_per_day: number; persona_coverage: number
   prefs_err_final: number; prefs_tag_f1: number
   daily_persona_err: { day: number; err: number }[]
+  // 行为一致性（用户 Agent reward 信号可信度）
+  pac_conflict_rate?: number | null
+  pac_conflict_count?: number
+  pac_severity?: string
+  wsc_coherence_score?: number | null
+  wsc_incoherent_sessions?: number
+  pra_misaligned_requests?: number
+  pba_correlation?: number | null
+  csps_stability_score?: number | null
 }
 export interface MetricStat { n: number; mean: number | null; std: number | null; ci95: number | null; lo: number | null; hi: number | null }
 export interface BenchGroup {
@@ -106,6 +115,86 @@ export interface Catalog {
   sleep_tiers: { vid: string; name: string; cost: number }[]
 }
 
+// ── Balance config types ────────────────────────────────────────────────────
+
+export const EFFECT_DIMS = ['valence', 'energy', 'satiety', 'stress'] as const
+export type EffectDim = typeof EFFECT_DIMS[number]
+
+export interface EffectDict { valence: number | { pull: [number, number] }; energy: number | { pull: [number, number] }; satiety: number | { pull: [number, number] }; stress: number | { pull: [number, number] } }
+
+export interface Variant {
+  vid: string; location: string; tier: string; cost: number; span: number
+  weight: EffectDict; effect?: EffectDict
+}
+
+export interface RecoveryAction {
+  id: string; action: string; category: string
+  base_effect: EffectDict; design_intent: string; variants: Variant[]
+}
+
+export interface MealTier {
+  vid: string; name: string; tier: string; cost: number; effect: EffectDict; design_intent: string
+}
+
+export interface SleepTier {
+  vid: string; name: string; tier: string; cost: number; effect: EffectDict; design_intent: string
+}
+
+export interface CustomActivity {
+  id: string; name: string; cost: number; keywords: string[]
+  effect: EffectDict; design_intent: string
+}
+
+export interface Profession {
+  archetype: string; income_per_slot: number; note: string
+}
+
+export interface Disturbance {
+  id: string; name: string; location: string; cost: number; income: number
+  effect: EffectDict; design_intent: string
+}
+
+export interface TemplateEvent {
+  id: string; name: string; slot: string; location: string
+  implicit_effect: EffectDict
+  note?: string
+}
+
+export interface HabituationEntry { w_min: number; tau: number; curve: string }
+export interface NeedsEntry {
+  accumulate: string; satisfy_events: string; urge_curve: string; satisfy_curve: string
+}
+export interface PersonaModEntry { formula: string; var: string; intent: string; rule?: string }
+
+export interface WeatherConfig {
+  states: string[]
+  initial_weights: number[]
+  transition_matrix: number[][]
+  state_effects: Record<string, Partial<Record<EffectDim, number>>>
+  outdoor_modifiers: Record<string, number>
+}
+
+export interface BalanceFiles {
+  recovery_actions?: RecoveryAction[]
+  meal_tiers?: MealTier[]
+  sleep_tiers?: SleepTier[]
+  custom_activities?: CustomActivity[]
+  professions?: Profession[]
+  disturbances?: Disturbance[]
+  template_events?: TemplateEvent[]
+  economy?: Record<string, number>
+  dynamics?: Record<string, number>
+  habituation?: Record<string, HabituationEntry>
+  needs?: Record<string, NeedsEntry>
+  persona_modulation?: Record<string, PersonaModEntry>
+  weather?: WeatherConfig
+}
+
+export interface BalanceConfig {
+  source: 'json' | 'default' | 'default(error)'
+  files: BalanceFiles
+}
+
 const j = (r: Response) => r.json()
 export const api = {
   listRuns: (): Promise<{ runs: RunItem[] }> => fetch('/api/runs').then(j),
@@ -123,6 +212,13 @@ export const api = {
   report: (id: string): Promise<Report> => fetch(`/api/runs/${id}/report`).then(j),
   insights: (id: string): Promise<{ findings: { severity: string; category: string; title: string; detail: string; evidence: string }[]; stats: Record<string, any> }> =>
     fetch(`/api/runs/${id}/insights`).then(j),
+  getBalanceConfig: (): Promise<BalanceConfig> => fetch('/api/balance/config').then(j),
+  saveBalanceFile: (file: string, content: unknown): Promise<{ ok: boolean; source: string; file: string }> =>
+    fetch('/api/balance/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file, content }) }).then(j),
+  resetBalanceFile: (file?: string): Promise<{ ok: boolean; reset: string[]; source: string }> =>
+    fetch('/api/balance/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file: file ?? null }) }).then(j),
+  evalFormula: (formula: string, varName = 'x', points = 50): Promise<{ ok: boolean; points?: { x: number; y: number }[]; error?: string }> =>
+    fetch('/api/balance/eval_formula', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ formula, var_name: varName, points }) }).then(j),
   catalog: (): Promise<Catalog> => fetch('/api/catalog').then(j),
   harnesses: (): Promise<{ items: { name: string; doc: string }[]; default: string }> =>
     fetch('/api/harnesses').then(j),

@@ -7,9 +7,77 @@
 
 from __future__ import annotations
 
+import ast
 import math
+import operator
+from typing import Callable
 
 from usersim.contracts.persona import trait
+
+# ---------------------------------------------------------------
+# 0. 安全公式解析器
+# ---------------------------------------------------------------
+
+SAFE_OPS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.Pow: operator.pow,
+    ast.USub: operator.neg,
+}
+
+SAFE_FUNCS = {
+    'abs': abs,
+    'min': min,
+    'max': max,
+    'sqrt': math.sqrt,
+}
+
+
+def parse_formula_multi(expr: str, var_names: tuple[str, ...] = ('x',)) -> Callable[[dict[str, float]], float] | None:
+    """安全解析多变量公式字符串为可执行函数。
+
+    支持语法: x, y, E, N, +, -, *, /, ^, **, 括号, abs/min/max/sqrt
+    示例: "1 + 1.2*E" → 传入 {"E": 0.9} 返回 2.08
+    """
+    try:
+        expr = expr.replace('²', '**2').replace('³', '**3').replace('^', '**')
+        expr = expr.replace('u=', '').replace('s=', '').strip()
+        import re
+        expr = re.sub(r'(\d)([a-zA-Z])', r'\1*\2', expr)
+
+        tree = ast.parse(expr, mode='eval')
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                if not isinstance(node.func, ast.Name) or node.func.id not in SAFE_FUNCS:
+                    return None
+            elif isinstance(node, (ast.Import, ast.ImportFrom, ast.Attribute)):
+                return None
+            elif isinstance(node, ast.Name):
+                if node.id not in var_names and node.id not in SAFE_FUNCS:
+                    return None
+
+        code = compile(tree, '<formula>', 'eval')
+
+        def eval_func(vars: dict[str, float]) -> float:
+            result = eval(code, {"__builtins__": {}}, {**vars, **SAFE_FUNCS})
+            return float(result)
+
+        return eval_func
+    except Exception:
+        return None
+
+
+def parse_formula(expr: str, var_name: str = 'x') -> Callable[[float], float] | None:
+    """安全解析单变量公式字符串为可执行函数。"""
+    multi = parse_formula_multi(expr, (var_name,))
+    if multi is None:
+        return None
+    def eval_func(x: float) -> float:
+        return multi({var_name: x})
+    return eval_func
 
 # ---------------------------------------------------------------
 # 1. 习惯化曲线
@@ -82,6 +150,8 @@ class Needs:
 
     def __init__(self, state: dict[str, float] | None = None):
         self.n = dict(NEED_DEFAULTS if state is None else state)
+        self._urge_funcs: dict[str, Callable[[float], float]] = {}
+        self._satisfy_funcs: dict[str, Callable[[float], float]] = {}
 
     def to_dict(self) -> dict[str, float]:
         return dict(self.n)
@@ -117,29 +187,114 @@ class Needs:
             n["achievement"] = max(0.1, n["achievement"] - 0.03)
 
     # ---- 驱动力曲线 u(x)：→ 求助倾向 ----
-    def urges(self) -> dict[str, float]:
+    def urges(self, overrides: dict | None = None) -> dict[str, float]:
+        """计算各需求的驱动力。优先使用配置公式，回退到硬编码默认值。"""
         n = self.n
-        return {
-            "hunger": min(1.0, (n["hunger"] / 0.6) ** 1.5) if n["hunger"] > 0 else 0.0,
-            "social": n["social"] ** 2,
-            "stimulation": 1.0 - (2 * n["stimulation"] - 1) ** 2,  # 倒 U：太少无聊/太多过载
-            "achievement": n["achievement"] ** 2.5,
+        needs_cfg = (overrides or {}).get("needs", {})
+
+        result = {}
+
+        # 需求名映射（配置文件用中文键，内部用英文键）
+        need_map = {
+            "hunger": "饥饿",
+            "social": "社交",
+            "stimulation": "刺激",
+            "achievement": "成就"
         }
 
-    def session_urge(self) -> float:
-        return max(self.urges().values())
+        for eng_key, value in n.items():
+            cn_key = need_map.get(eng_key, eng_key)
+            cfg = needs_cfg.get(cn_key, {})
+            formula_str = cfg.get("urge_curve", "")
+
+            # 尝试使用配置公式（按公式内容缓存，避免不同 overrides 互相污染）
+            func = None
+            if formula_str:
+                cache_key = f"{eng_key}:{formula_str}"
+                if cache_key not in self._urge_funcs:
+                    self._urge_funcs[cache_key] = parse_formula(formula_str, 'x')
+                func = self._urge_funcs.get(cache_key)
+
+            if func:
+                try:
+                    result[eng_key] = max(0.0, min(1.0, func(value)))
+                    continue
+                except:
+                    pass
+
+            # 回退到硬编码默认值
+            if eng_key == "hunger":
+                result[eng_key] = min(1.0, (value / 0.6) ** 1.5) if value > 0 else 0.0
+            elif eng_key == "social":
+                result[eng_key] = value ** 2
+            elif eng_key == "stimulation":
+                result[eng_key] = 1.0 - (2 * value - 1) ** 2
+            elif eng_key == "achievement":
+                result[eng_key] = value ** 2.5
+            else:
+                result[eng_key] = value
+
+        return result
+
+    def session_urge(self, overrides: dict | None = None) -> float:
+        return max(self.urges(overrides).values())
 
     # ---- 满足曲线 s(x)：→ 效果权重 ----
-    def satisfaction(self, event_name: str) -> float:
+    def satisfaction(self, event_name: str, overrides: dict | None = None) -> float:
+        """计算事件的满足权重。优先使用配置公式，回退到硬编码逻辑。"""
         n = self.n
-        u = self.urges()
+        u = self.urges(overrides)
+        needs_cfg = (overrides or {}).get("needs", {})
+
+        # 识别事件类型并尝试使用配置公式
         if any(k in event_name for k in ("吃", "餐", "美食", "火锅", "寿喜烧")):
+            cfg = needs_cfg.get("饥饿", {})
+            formula_str = cfg.get("satisfy_curve", "")
+            if formula_str:
+                cache_key = f"hunger:{formula_str}"
+                if cache_key not in self._satisfy_funcs:
+                    self._satisfy_funcs[cache_key] = parse_formula(formula_str, 'u')
+                func = self._satisfy_funcs.get(cache_key)
+                if func:
+                    try:
+                        return max(0.0, func(u["hunger"]))
+                    except:
+                        pass
+            # 硬编码回退
             return 1.0 + 1.5 * u["hunger"]
+
         if any(k in event_name for k in SOCIAL_EVENTS):
+            cfg = needs_cfg.get("社交", {})
+            formula_str = cfg.get("satisfy_curve", "")
+            if formula_str:
+                cache_key = f"social:{formula_str}"
+                if cache_key not in self._satisfy_funcs:
+                    self._satisfy_funcs[cache_key] = parse_formula(formula_str, 'u')
+                func = self._satisfy_funcs.get(cache_key)
+                if func:
+                    try:
+                        return max(0.0, func(u["social"]))
+                    except:
+                        pass
+            # 硬编码回退
             return 1.0 + 0.8 * u["social"]
+
         if any(k in event_name for k in STIM_EVENTS):
-            # 刺激满足：中等最爽，过载打折（非单调）
+            cfg = needs_cfg.get("刺激", {})
+            formula_str = cfg.get("satisfy_curve", "")
+            if formula_str:
+                cache_key = f"stimulation:{formula_str}"
+                if cache_key not in self._satisfy_funcs:
+                    self._satisfy_funcs[cache_key] = parse_formula(formula_str, 'x')
+                func = self._satisfy_funcs.get(cache_key)
+                if func:
+                    try:
+                        return max(0.0, func(n["stimulation"]))
+                    except:
+                        pass
+            # 硬编码回退：中等最爽，过载打折（非单调）
             return 0.6 + 0.8 * (1.0 - abs(2 * n["stimulation"] - 1))
+
         return 1.0
 
 
@@ -148,17 +303,19 @@ class Needs:
 # ---------------------------------------------------------------
 
 def persona_modifiers(big5: dict[str, int], event_name: str, effect: dict,
-                      facets: dict[str, int] | None = None) -> dict:
-    """按人格修正事件效果（facet 粒度）。
+                      facets: dict[str, int] | None = None,
+                      overrides: dict | None = None) -> dict:
+    """按人格修正事件效果（facet 粒度）。覆盖大五人格全部五个维度。
 
     facets 给定时按细分面调节，缺失时自动回退到域分——旧存档因此行为不变：
 
-    - **社交电池**：外向性.群居性 决定社交耗电/回血，外向性.热情 决定心情加成；
-    - **压力放大**：神经质.焦虑 与 神经质.脆弱 的均值决定压力事件被放大多少；
-    - **新异刺激**：开放性.尝新 与 开放性.审美 决定新异/文化类事件的收益。
+    - **社交电池（外向性）**：群居性 决定社交耗电/回血，热情 决定心情加成；
+    - **压力放大（神经质）**：焦虑 + 脆弱 的均值决定压力事件被放大多少；
+    - **新异刺激（开放性）**：尝新 + 审美 决定新异/文化类事件的收益；
+    - **任务承压（尽责性）**：自律 决定工作/成就类事件的负面压力被缓冲多少；
+    - **人际融洽（宜人性）**：同理心 决定社交事件正面心情的额外加成。
 
-    用细分面而非域分是有意义的：一个"群居性低但热情高"的人（享受深聊、厌恶饭局）
-    与"群居性高但热情低"的人（爱热闹但不亲近）在域分上都是中等外向，行为却完全不同。
+    配置中 `persona_mod` 的公式可覆盖默认系数；公式非法或缺失时回退硬编码。
     """
     out = dict(effect)
     gregarious = trait(big5, facets, "外向性.群居性") / 100
@@ -168,25 +325,62 @@ def persona_modifiers(big5: dict[str, int], event_name: str, effect: dict,
     neuro = (anxiety + vulnerability) / 2
     novelty = trait(big5, facets, "开放性.尝新") / 100
     aesthetic = trait(big5, facets, "开放性.审美") / 100
+    conscientious = trait(big5, facets, "尽责性.自律") / 100
+    empathy = trait(big5, facets, "宜人性.同理心") / 100
+
+    persona_cfg = (overrides or {}).get("persona_mod", {})
+
+    def _mult(key: str, default_expr: str, vars: dict[str, float]) -> float:
+        """从配置公式计算倍率，失败则使用默认表达式。"""
+        cfg = persona_cfg.get(key, {})
+        formula = cfg.get("formula") or cfg.get("rule", "")
+        if formula:
+            func = parse_formula_multi(formula, tuple(vars.keys()))
+            if func is not None:
+                try:
+                    return func(vars)
+                except Exception:
+                    pass
+        # 默认表达式也走安全解析，避免手写系数与公式不同步
+        func = parse_formula_multi(default_expr, tuple(vars.keys()))
+        if func is not None:
+            return func(vars)
+        return 1.0
 
     def num(k: str) -> bool:
         return isinstance(out.get(k), (int, float))
 
-    if any(k in event_name for k in SOCIAL_EVENTS):
+    is_social = any(k in event_name for k in SOCIAL_EVENTS)
+    is_work_achieve = any(k in event_name for k in ("工作", "刷题", "网课", "大考", "项目", "截止"))
+    is_stim = any(k in event_name for k in STIM_EVENTS)
+
+    if is_social:
         if num("energy"):
-            out["energy"] *= (1.0 + 1.2 * gregarious) if out["energy"] > 0 else (1.6 - 1.2 * gregarious)
+            pos_mult = _mult("外向性", "1 + 1.2*E", {"E": gregarious})
+            out["energy"] *= pos_mult if out["energy"] > 0 else (1.6 - 1.2 * gregarious)
         else:
             out["energy"] = 0.04 * gregarious - 0.05 * (1 - gregarious)
+        # 宜人性：社交正面心情加成
+        if num("valence") and out["valence"] > 0:
+            agree_mult = _mult("宜人性", "1 + 0.3*A", {"A": empathy})
+            out["valence"] *= agree_mult
+        # 外向性热情：高热情额外加心情小冲量
         if warmth > 0.7 and num("valence"):
             out["valence"] = out.get("valence", 0.0) + 0.03
     if num("stress") and out["stress"] > 0:
-        out["stress"] *= (1.0 + (neuro - 0.5))
-    if any(k in event_name for k in STIM_EVENTS):
+        stress_mult = _mult("神经质", "1 + (N - 0.5)", {"N": neuro})
+        out["stress"] *= stress_mult
+    if is_stim:
         openness = (novelty + aesthetic) / 2
+        stim_mult = _mult("开放性", "0.7 + 0.6*O", {"O": openness})
         if num("valence") and out["valence"] > 0:
-            out["valence"] *= (0.7 + 0.6 * openness)
+            out["valence"] *= stim_mult
         if num("stress") and out["stress"] < 0:
-            out["stress"] *= (0.7 + 0.6 * openness)
+            out["stress"] *= stim_mult
+    # 尽责性：工作/成就类负面压力缓冲
+    if is_work_achieve and num("stress") and out["stress"] < 0:
+        cons_mult = _mult("尽责性", "1 - 0.3*C", {"C": conscientious})
+        out["stress"] *= cons_mult
     return out
 
 

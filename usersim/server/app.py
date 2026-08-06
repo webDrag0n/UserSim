@@ -266,56 +266,105 @@ def continue_run(run_id: str, req: ContinueRunRequest) -> dict:
     return {"continued": True, "run_id": run_id, "extra_days": req.extra_days, "total_days": total_days}
 
 
-@app.get("/api/balance")
-def get_balance() -> dict:
-    """配表编辑器数据：可编辑 sheet 的表头与行（含真实行号）。"""
-    from openpyxl import load_workbook
-    from usersim.world.balance import XLSX_PATH, load_overrides
+@app.get("/api/balance/config")
+def get_balance_config() -> dict:
+    """配表编辑器数据：返回所有 JSON 配置文件内容供前端编辑。"""
+    from usersim.world.balance import load_overrides, list_config_files, _load_json
 
-    editable = ["恢复事件配表", "扰动事件配表", "经济与全局参数", "习惯化曲线", "需求参数", "人格调节", "自定义活动类目"]
-    sheets = []
-    if XLSX_PATH.exists():
-        wb = load_workbook(XLSX_PATH, data_only=True)
-        for name in editable:
-            if name not in wb.sheetnames:
-                continue
-            ws = wb[name]
-            headers = [c.value for c in ws[3]]
-            rows = [[i] + [c.value for c in r] for i, r in enumerate(ws.iter_rows(min_row=4), start=4)
-                    if any(c.value is not None for c in r)]
-            sheets.append({"name": name, "headers": headers, "rows": rows})
     ov = load_overrides()
-    return {"source": ov["source"], "sheets": sheets}
+    files: dict = {}
+    for fname in list_config_files():
+        key = fname.replace(".json", "")
+        data = _load_json(fname)
+        if data is not None:
+            files[key] = data
+    return {"source": ov["source"], "files": files}
 
 
-class BalanceCellRequest(BaseModel):
-    sheet: str
-    row: int
-    col: int
-    value: str
+class BalanceSaveRequest(BaseModel):
+    file: str   # e.g. "recovery_actions"
+    content: object  # full JSON content
 
 
-@app.post("/api/balance/cell")
-def set_balance_cell(req: BalanceCellRequest) -> dict:
-    """写单元格并热加载（新 run 立即使用新数值）。"""
-    from openpyxl import load_workbook
-    from usersim.world.balance import XLSX_PATH, reload
-
+@app.post("/api/balance/save")
+def save_balance_config(req: BalanceSaveRequest) -> dict:
+    """保存整个配置文件并热加载（新 run 立即使用新数值）。"""
     from fastapi import HTTPException
-    if not XLSX_PATH.exists():
-        raise HTTPException(404, "配表文件不存在")
-    wb = load_workbook(XLSX_PATH)
-    if req.sheet not in wb.sheetnames:
-        raise HTTPException(404, f"sheet 不存在: {req.sheet}")
-    ws = wb[req.sheet]
-    cell = ws.cell(req.row, req.col)
+    from usersim.world.balance import save_config_file, load_overrides, get_config_dir
+
+    ALLOWED = {
+        "recovery_actions", "meal_tiers", "sleep_tiers", "custom_activities",
+        "professions", "disturbances", "template_events", "economy",
+        "dynamics", "habituation", "needs", "persona_modulation", "weather",
+    }
+    if req.file not in ALLOWED:
+        raise HTTPException(400, f"未知配置文件: {req.file}")
+    save_config_file(f"{req.file}.json", req.content)
+    ov = load_overrides()
+    return {"ok": True, "source": ov["source"], "file": req.file}
+
+
+class BalanceResetRequest(BaseModel):
+    file: str | None = None  # None → 重置全部
+
+
+@app.post("/api/balance/reset")
+def reset_balance_config(req: BalanceResetRequest) -> dict:
+    """从代码默认值重置一个或所有配置文件并热加载。"""
+    from fastapi import HTTPException
+    from usersim.world.balance import reset_config_file, reload, list_config_files
+
+    RESETABLE = {
+        "recovery_actions.json", "meal_tiers.json", "sleep_tiers.json",
+        "custom_activities.json", "professions.json", "disturbances.json",
+        "template_events.json", "economy.json", "habituation.json",
+    }
+    if req.file:
+        fname = f"{req.file}.json"
+        if fname not in RESETABLE:
+            raise HTTPException(400, f"无法重置: {req.file}（不在可重置列表或没有默认值）")
+        ok = reset_config_file(fname)
+        if not ok:
+            raise HTTPException(500, f"重置失败: {req.file}")
+        ov = reload()
+        return {"ok": True, "reset": [req.file], "source": ov["source"]}
+    else:
+        reset_ok = [f.replace(".json", "") for f in RESETABLE if reset_config_file(f)]
+        ov = reload()
+        return {"ok": True, "reset": reset_ok, "source": ov["source"]}
+
+
+class FormulaEvalRequest(BaseModel):
+    formula: str
+    var_name: str = "x"
+    points: int = 50
+
+
+@app.post("/api/balance/eval_formula")
+def eval_formula(req: FormulaEvalRequest) -> dict:
+    """评估公式并返回曲线数据点（用于前端实时预览）。"""
+    from usersim.world.anthro import parse_formula
+
+    func = parse_formula(req.formula, req.var_name)
+    if func is None:
+        return {"ok": False, "error": "公式语法错误或包含不安全操作"}
+
     try:
-        cell.value = float(req.value)  # 数值优先
-    except ValueError:
-        cell.value = req.value
-    wb.save(XLSX_PATH)
-    ov = reload()
-    return {"ok": True, "source": ov["source"]}
+        points = []
+        for i in range(req.points):
+            x = i / (req.points - 1)
+            y = func(x)
+            points.append({"x": x, "y": y})
+        return {"ok": True, "points": points}
+    except Exception as e:
+        return {"ok": False, "error": f"执行错误: {str(e)}"}
+
+
+# ── 兼容旧端点（已废弃，保留 30 天供过渡）──────────────────────────────────
+@app.get("/api/balance")
+def get_balance_legacy() -> dict:
+    """[已废弃] 旧 Excel 配表接口，改用 /api/balance/config。"""
+    return get_balance_config()
 
 
 @app.get("/api/runs/{run_id}/insights")

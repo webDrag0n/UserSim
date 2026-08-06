@@ -60,7 +60,7 @@ export default function App() {
           </div>
         </nav>
 
-        <main className="mx-auto max-w-[1480px] px-6 py-6">
+        <main className="mx-auto max-w-[1480px] px-6 pt-6 pb-24">
           {page === 'balance' ? <BalancePage />
             : page === 'bench' ? <Bench />
             : !runId ? <Dashboard onOpen={setRunId} />

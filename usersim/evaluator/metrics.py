@@ -117,6 +117,12 @@ def compute_metrics(
     # 画像精度（冻结维度：人格 30 facet + 结构化喜好）
     profile = _profile_metrics(turns, persona, slots_per_day)
 
+    # 行为一致性（用户 Agent 作为 reward 信号的可信度）
+    from usersim.evaluator.consistency import compute_consistency
+    p_data = persona if isinstance(persona, dict) else (persona.model_dump() if persona else {})
+    consistency = compute_consistency(turns, p_data)
+    consistency_metrics = consistency.get("metrics", {})
+
     return {
         **profile,
         "ess": ess,
@@ -134,6 +140,15 @@ def compute_metrics(
         "daily_est_err": [{"day": d, "err": e} for d, e in daily_est_err],
         "daily_err": [{"day": d, "e": e} for d, e in enumerate(daily_e)],
         "verdict": verdict,
+        # 行为一致性指标
+        "pac_conflict_rate": consistency_metrics.get("pac_conflict_rate"),
+        "pac_conflict_count": consistency_metrics.get("pac_conflict_count"),
+        "pac_severity": consistency_metrics.get("pac_severity"),
+        "wsc_coherence_score": consistency_metrics.get("wsc_coherence_score"),
+        "wsc_incoherent_sessions": consistency_metrics.get("wsc_incoherent_sessions"),
+        "pra_misaligned_requests": consistency_metrics.get("pra_misaligned_requests"),
+        "pba_correlation": consistency_metrics.get("pba_correlation"),
+        "csps_stability_score": consistency_metrics.get("csps_stability_score"),
     }
 
 

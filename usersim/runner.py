@@ -327,7 +327,7 @@ def run_live(seed: int, days: int, cfg: Namespace, out_root: Path,
 
         # ---- 步骤 3：用户主动规划（根据需求状态选择本 slot 的意图事件）----
         intents = planner.plan_slot(
-            urges=world.needs.urges(),   # 传 urges dict 而非 Needs 对象
+            urges=world.needs.urges(world.overrides),   # 传 urges dict 而非 Needs 对象
             stress=world.x.stress,
             energy=world.x.energy,
             slot=world.slot,

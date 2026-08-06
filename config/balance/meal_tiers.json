@@ -1,0 +1,56 @@
+[
+  {
+    "vid": "M0",
+    "name": "随便对付一口",
+    "tier": "应付",
+    "cost": 0.0,
+    "effect": {
+      "valence": 0.0,
+      "energy": 0.0,
+      "satiety": {
+        "pull": [
+          0.55,
+          0.6
+        ]
+      },
+      "stress": 0.0
+    },
+    "design_intent": "能吃饱但不开心：饱腹只拉到 0.55，毫无心情加成"
+  },
+  {
+    "vid": "M1",
+    "name": "日常家常",
+    "tier": "日常",
+    "cost": 10.0,
+    "effect": {
+      "valence": 0.01,
+      "energy": 0.0,
+      "satiety": {
+        "pull": [
+          0.7,
+          0.75
+        ]
+      },
+      "stress": 0.0
+    },
+    "design_intent": "模板默认档：¥10 一顿，饱腹拉到 0.70"
+  },
+  {
+    "vid": "M2",
+    "name": "品质外卖",
+    "tier": "品质",
+    "cost": 25.0,
+    "effect": {
+      "valence": 0.03,
+      "energy": 0.0,
+      "satiety": {
+        "pull": [
+          0.78,
+          0.75
+        ]
+      },
+      "stress": 0.0
+    },
+    "design_intent": "多花点钱，饱腹略高且有点开心"
+  }
+]

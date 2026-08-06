@@ -260,6 +260,59 @@ export function InsightsPanel({ runId }: { runId: string }) {
         <p className="text-[13px] text-t2 leading-relaxed flex-1">{data.summary}</p>
       </Card>
 
+      {/* 行为一致性摘要 */}
+      {data.consistency && (
+        <Card className="p-4">
+          <div className="text-sm font-semibold text-t1 mb-2">
+            🧠 行为一致性（用户 Agent Reward 信号可信度）
+          </div>
+          <div className="grid grid-cols-5 gap-3 text-center">
+            <div className="rounded-lg bg-surface-2 p-2">
+              <div className={`text-lg font-bold font-num ${
+                (data.consistency.pac_conflict_rate ?? 0) > 0.2 ? 'text-[var(--critical)]' :
+                (data.consistency.pac_conflict_rate ?? 0) > 0 ? 'text-[var(--warning)]' : 'text-[var(--good)]'
+              }`}>
+                {data.consistency.pac_conflict_count ?? 0}
+              </div>
+              <div className="text-[10px] text-t3">偏好冲突 (PAC)</div>
+            </div>
+            <div className="rounded-lg bg-surface-2 p-2">
+              <div className={`text-lg font-bold font-num ${
+                (data.consistency.wsc_coherence_score ?? 1) < 0.7 ? 'text-[var(--critical)]' :
+                (data.consistency.wsc_coherence_score ?? 1) < 0.9 ? 'text-[var(--warning)]' : 'text-[var(--good)]'
+              }`}>
+                {((data.consistency.wsc_coherence_score ?? 1) * 100).toFixed(0)}%
+              </div>
+              <div className="text-[10px] text-t3">情感一致性 (WSC)</div>
+            </div>
+            <div className="rounded-lg bg-surface-2 p-2">
+              <div className={`text-lg font-bold font-num ${
+                (data.consistency.pra_misaligned_requests ?? 0) > 0 ? 'text-[var(--warning)]' : 'text-[var(--good)]'
+              }`}>
+                {data.consistency.pra_misaligned_requests ?? 0}
+              </div>
+              <div className="text-[10px] text-t3">请求不对齐 (PRA)</div>
+            </div>
+            <div className="rounded-lg bg-surface-2 p-2">
+              <div className={`text-lg font-bold font-num ${
+                (data.consistency.pba_correlation ?? 1) < 0.5 ? 'text-[var(--warning)]' : 'text-[var(--good)]'
+              }`}>
+                {data.consistency.pba_correlation != null ? (data.consistency.pba_correlation * 100).toFixed(0) + '%' : '—'}
+              </div>
+              <div className="text-[10px] text-t3">人格行为相关 (PBA)</div>
+            </div>
+            <div className="rounded-lg bg-surface-2 p-2">
+              <div className={`text-lg font-bold font-num ${
+                (data.consistency.csps_stability_score ?? 1) < 0.7 ? 'text-[var(--warning)]' : 'text-[var(--good)]'
+              }`}>
+                {((data.consistency.csps_stability_score ?? 1) * 100).toFixed(0)}%
+              </div>
+              <div className="text-[10px] text-t3">偏好稳定性 (CSPS)</div>
+            </div>
+          </div>
+        </Card>
+      )}
+
       {/* 发现（含建议） */}
       <div className="grid md:grid-cols-3 gap-3">
         {(['error', 'warn', 'info'] as const).map((sev) => (
@@ -274,7 +327,9 @@ export function InsightsPanel({ runId }: { runId: string }) {
               {grouped[sev].map((f: any, i: number) => (
                 <div key={i} className="rounded-lg bg-surface-2 border border-edge p-3">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="rounded px-1.5 py-0.5 text-[10px] bg-[var(--hover)] text-t2">{f.category}</span>
+                    <span className={`rounded px-1.5 py-0.5 text-[10px] ${
+                      f.category === '一致性' ? 'bg-[var(--accent)]/15 text-[var(--accent)]' : 'bg-[var(--hover)] text-t2'
+                    }`}>{f.category}</span>
                     <span className="text-[12px] font-semibold text-t1">{f.title}</span>
                   </div>
                   <p className="text-[11px] text-t2 leading-relaxed">{f.detail}</p>

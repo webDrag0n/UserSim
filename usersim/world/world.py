@@ -64,6 +64,7 @@ class World:
         self.needs = Needs()  # 需求层（饥饿/社交/刺激/成就）
         self._series_track: dict[str, dict] = {}  # 峰终定律跟踪
         self._balance = load_overrides()  # Excel 数值覆盖（习惯化/需求/人格）
+        self.overrides = self._balance  # 让 Needs.urges/satisfaction 读取覆盖
 
         # 天气系统
         self.weather: Weather = initial_weather(self.streams["weather"])
@@ -192,9 +193,9 @@ class World:
                 assist_prompt = f"用户即将/正在参加「{e.name}」，可能需要准备材料、提醒或安排车辆"
             else:
                 assist_prompt = f"用户即将/正在游玩「{e.name}」，可能需要攻略、导航、订票或附近美食推荐"
-        elif self.slot == 1 and gen.random() < probs.get("meal", 0.12) * (0.5 + self.needs.urges()["hunger"]):
+        elif self.slot == 1 and gen.random() < probs.get("meal", 0.12) * (0.5 + self.needs.urges(self.overrides)["hunger"]):
             assist_prompt = "饭点到了，用户可能想要美食推荐或订餐协助"
-        elif gen.random() < probs.get("idle", 0.08) * (0.3 + 0.7 * self.needs.session_urge()):
+        elif gen.random() < probs.get("idle", 0.08) * (0.3 + 0.7 * self.needs.session_urge(self.overrides)):
             assist_prompt = "用户似乎有点空闲，可能想随便聊聊或办点杂事"
 
         ctx = EventContext(
@@ -341,6 +342,7 @@ class World:
         w.needs = _Needs(snap.get("needs"))
         w._series_track = dict(snap.get("series_track", {}))
         w._balance = load_overrides()
+        w.overrides = w._balance
         # 恢复天气状态（旧快照兼容：默认晴天）
         weather_str = snap.get("weather", "晴")
         w.weather = Weather(weather_str)
@@ -365,14 +367,14 @@ class World:
                 w = hab_weight(dt, *habit_params(e.name, self._balance))
                 if e.start_slot == self.t:  # 长事件只在开始时记录执行
                     self._last_done[key] = self.t
-            sat = self.needs.satisfaction(e.name) if e.kind in ("recovery", "series") else 1.0
+            sat = self.needs.satisfaction(e.name, self.overrides) if e.kind in ("recovery", "series") else 1.0
             eff: dict = {}
             for k, v in e.effect.items():
                 if isinstance(v, dict) and "pull" in v:
                     eff[k] = {"pull": [v["pull"][0], v["pull"][1] * w]}
                 else:
                     eff[k] = v * w * sat
-            eff = persona_modifiers(self.persona.big5, e.name, eff, facets=self.persona.facets)
+            eff = persona_modifiers(self.persona.big5, e.name, eff, facets=self.persona.facets, overrides=self._balance)
             # 喜好调节：爱做的事回血更多、讨厌的事效果打折（只作用于恢复/系列活动，
             # 工作与模板事件不受喜好影响——不喜欢也得上班）
             if e.kind in ("recovery", "series"):

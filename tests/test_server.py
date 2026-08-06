@@ -43,8 +43,30 @@ def test_catalog_endpoint(client) -> None:
 
 
 def test_balance_endpoint(client) -> None:
-    r = client.get("/api/balance")
+    r = client.get("/api/balance/config")
     assert r.status_code == 200
+    body = r.json()
+    assert body["source"] in ("json", "default")
+    # effect 字段已统一为四维
+    for action in body["files"].get("recovery_actions", []):
+        for dim in ("valence", "energy", "satiety", "stress"):
+            assert dim in action["base_effect"]
+            for v in action.get("variants", []):
+                assert dim in v["weight"]
+                assert dim in v["effect"]
+
+
+def test_eval_formula_endpoint(client) -> None:
+    r = client.post("/api/balance/eval_formula", json={"formula": "x**2", "var_name": "x", "points": 11})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert len(body["points"]) == 11
+    assert body["points"][0]["y"] == 0.0
+    assert abs(body["points"][-1]["y"] - 1.0) < 1e-9
+
+    r = client.post("/api/balance/eval_formula", json={"formula": "import os", "var_name": "x"})
+    assert r.json()["ok"] is False
 
 
 def test_config_validation_endpoint(client) -> None:

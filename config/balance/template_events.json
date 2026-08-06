@@ -1,0 +1,54 @@
+[
+  {
+    "id": "T1",
+    "name": "上午工作",
+    "slot": "上午",
+    "location": "公司",
+    "implicit_effect": {
+      "valence": 0.0,
+      "energy": -0.06,
+      "satiety": 0.0,
+      "stress": 0.048
+    },
+    "note": "精力 -0.06 · 压力 +0.048 · 收入按职业（由动力学+经济结算）"
+  },
+  {
+    "id": "T2",
+    "name": "下午工作",
+    "slot": "下午",
+    "location": "公司",
+    "implicit_effect": {
+      "valence": 0.0,
+      "energy": -0.06,
+      "satiety": 0.0,
+      "stress": 0.048
+    },
+    "note": "精力 -0.06 · 压力 +0.048 · 收入按职业"
+  },
+  {
+    "id": "T3",
+    "name": "晚间休整",
+    "slot": "晚上",
+    "location": "家",
+    "implicit_effect": {
+      "valence": 0.0,
+      "energy": -0.04,
+      "satiety": 0.0,
+      "stress": -0.01
+    },
+    "note": "压力 -0.01 · 精力 -0.04（工作日）"
+  },
+  {
+    "id": "T4",
+    "name": "周末休闲",
+    "slot": "下午",
+    "location": "外面",
+    "implicit_effect": {
+      "valence": 0.03,
+      "energy": -0.03,
+      "satiety": 0.0,
+      "stress": -0.01
+    },
+    "note": "心情 +0.03 · 压力 -0.01 · 精力 -0.03"
+  }
+]

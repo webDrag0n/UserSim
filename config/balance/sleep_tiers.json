@@ -1,0 +1,56 @@
+[
+  {
+    "vid": "S0",
+    "name": "熬夜后浅睡",
+    "tier": "劣质",
+    "cost": 0,
+    "effect": {
+      "valence": 0.0,
+      "energy": {
+        "pull": [
+          0.5,
+          0.1
+        ]
+      },
+      "satiety": 0.0,
+      "stress": 0.0
+    },
+    "design_intent": "惩罚档：精力只能回到 0.55（扰动/报复性熬夜的结果）"
+  },
+  {
+    "vid": "S1",
+    "name": "正常睡眠",
+    "tier": "日常",
+    "cost": 0,
+    "effect": {
+      "valence": 0.0,
+      "energy": {
+        "pull": [
+          0.8,
+          0.5
+        ]
+      },
+      "satiety": 0.0,
+      "stress": -0.05
+    },
+    "design_intent": "模板默认档（O1：精力上限 0.80，睡眠成为真实减压槽）"
+  },
+  {
+    "vid": "S2",
+    "name": "高质量睡眠（助眠仪式）",
+    "tier": "品质",
+    "cost": 50,
+    "effect": {
+      "valence": 0.0,
+      "energy": {
+        "pull": [
+          0.88,
+          0.6
+        ]
+      },
+      "satiety": 0.0,
+      "stress": -0.04
+    },
+    "design_intent": "付费升级：精力上限更高、入睡更快、额外降压"
+  }
+]

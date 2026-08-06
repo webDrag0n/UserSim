@@ -1,0 +1,135 @@
+[
+  {
+    "id": "C1",
+    "name": "文化看展",
+    "cost": 80.0,
+    "keywords": [
+      "美术馆",
+      "展览",
+      "看展",
+      "博物馆",
+      "艺术展",
+      "画展",
+      "逛馆"
+    ],
+    "effect": {
+      "valence": 0.1,
+      "energy": 0.0,
+      "satiety": 0.0,
+      "stress": -0.06
+    },
+    "design_intent": "精神滋养类：温和开心、小幅降压"
+  },
+  {
+    "id": "C2",
+    "name": "咖啡小憩",
+    "cost": 35.0,
+    "keywords": [
+      "咖啡",
+      "下午茶",
+      "点心",
+      "奶茶",
+      "甜品"
+    ],
+    "effect": {
+      "valence": 0.06,
+      "energy": 0.03,
+      "satiety": 0.05,
+      "stress": -0.04
+    },
+    "design_intent": "小额高频的即时慰藉"
+  },
+  {
+    "id": "C3",
+    "name": "音乐放松",
+    "cost": 50.0,
+    "keywords": [
+      "黑胶",
+      "音乐",
+      "听歌",
+      "livehouse",
+      "唱片",
+      "演唱会"
+    ],
+    "effect": {
+      "valence": 0.08,
+      "energy": 0.0,
+      "satiety": 0.0,
+      "stress": -0.07
+    },
+    "design_intent": "情绪价值类"
+  },
+  {
+    "id": "C4",
+    "name": "朋友小聚",
+    "cost": 100.0,
+    "keywords": [
+      "朋友",
+      "聚会",
+      "聚餐",
+      "见面",
+      "约饭"
+    ],
+    "effect": {
+      "valence": 0.1,
+      "energy": -0.03,
+      "satiety": 0.08,
+      "stress": 0.0
+    },
+    "design_intent": "社交回血但耗电"
+  },
+  {
+    "id": "C5",
+    "name": "学习充电",
+    "cost": 0.0,
+    "keywords": [
+      "学习",
+      "看书",
+      "读书",
+      "课程",
+      "复习",
+      "刷数学",
+      "开题",
+      "论文"
+    ],
+    "effect": {
+      "valence": 0.02,
+      "energy": -0.02,
+      "satiety": 0.0,
+      "stress": 0.02
+    },
+    "design_intent": "有意义但有消耗，不算恢复"
+  },
+  {
+    "id": "C6",
+    "name": "自然放空",
+    "cost": 0.0,
+    "keywords": [
+      "放空",
+      "发呆",
+      "吹风",
+      "看海",
+      "爬山"
+    ],
+    "effect": {
+      "valence": 0.07,
+      "energy": 0.0,
+      "satiety": 0.0,
+      "stress": -0.08
+    },
+    "design_intent": "免费强降压"
+  },
+  {
+    "id": "C0",
+    "name": "自定义活动",
+    "cost": 0.0,
+    "keywords": [],
+    "effect": {
+      "valence": 0.06,
+      "energy": 0.0,
+      "satiety": 0.0,
+      "stress": -0.05
+    },
+    "design_intent": "兜底：做喜欢的事总是有点用（规则默认值）"
+  }
+]

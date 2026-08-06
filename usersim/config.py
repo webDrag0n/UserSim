@@ -79,14 +79,20 @@ def _llm_config_hash(path: Path | None = None) -> str:
 def artifact_hashes() -> dict[str, str]:
     """可复现性凭证：所有影响轨迹的产物的哈希。
 
-    此前 meta.json 只记 system.toml 的哈希，于是改 Excel 配表、改 catalog 数值、
+    此前 meta.json 只记 system.toml 的哈希，于是改数值配置、改 catalog 数值、
     改 prompt 都不会反映在凭证里——两个"同 config_hash"的 run 其实不可比。
     """
     root = PROJECT_ROOT
+    balance_dir = root / "config" / "balance"
+    # 将 config/balance/ 下所有 JSON 文件的哈希合并为一个摘要
+    balance_files = sorted(balance_dir.glob("*.json")) if balance_dir.exists() else []
+    balance_hash = _sha12(
+        "|".join(f"{f.name}={_file_hash(f)}" for f in balance_files).encode()
+    ) if balance_files else "absent"
     parts = {
         "system": _file_hash(root / "config" / "system.toml"),
         "llm": _llm_config_hash(),
-        "balance": _file_hash(root / "balance-sheet" / "UserSim数值配表.xlsx"),
+        "balance": balance_hash,
         "catalog": _file_hash(root / "usersim" / "world" / "catalog.py"),
         "prompts": _sha12(
             _file_hash(root / "usersim" / "agents" / "assistant" / "reference.py").encode()

@@ -1,0 +1,5 @@
+{
+  "initial_money": 1000.0,
+  "overtime_income": 150.0,
+  "debt_stress_per_slot": 0.02
+}

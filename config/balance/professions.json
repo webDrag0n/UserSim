@@ -1,0 +1,32 @@
+[
+  {
+    "archetype": "高压互联网从业者",
+    "income_per_slot": 260,
+    "note": "高薪高压，买得起但没时间"
+  },
+  {
+    "archetype": "自由插画师",
+    "income_per_slot": 130,
+    "note": "收入不稳定，需量入为出"
+  },
+  {
+    "archetype": "备考研究生",
+    "income_per_slot": 80,
+    "note": "只有兼职收入，免费恢复是主力"
+  },
+  {
+    "archetype": "初创公司创始人",
+    "income_per_slot": 320,
+    "note": "收入最高，扰动也最猛"
+  },
+  {
+    "archetype": "倒班护士",
+    "income_per_slot": 190,
+    "note": "收入中等，作息特殊"
+  },
+  {
+    "archetype": "远程程序员",
+    "income_per_slot": 230,
+    "note": "中高收入，通勤零成本"
+  }
+]

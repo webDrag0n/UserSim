@@ -44,6 +44,10 @@ SCORE_DEFAULTS: dict[str, tuple[float, float]] = {
     "clamp_ratio": (80.0, 10.0),     # 状态饱和：世界分辨力
     "no_recover": (2.0, 10.0),       # 扰动无响应：干预覆盖
     "persona_err": (40.0, 10.0),     # 画像精度：人格/喜好估计偏差（冻结维度考点）
+    # 行为一致性（用户 Agent 作为 reward 信号的可信度）
+    "pac_conflict": (25.0, 12.0),    # 偏好-行动冲突率
+    "wsc_incoherent": (15.0, 8.0),   # 会话内情感不一致比例
+    "pra_misaligned": (10.0, 5.0),   # 喜好-请求不对齐比例
 }
 
 
@@ -369,6 +373,13 @@ def compute_insights(
                                f"画像误差斜率 {slope:+.4f}/天（应为负——越聊越懂用户）。",
                                "累积器可能被单句话带跑，或每轮全量重报导致随机抖动。"))
 
+    # ================= 行为一致性 =================
+    from usersim.evaluator.consistency import compute_consistency
+    persona_data = meta.get("persona", {})
+    consistency = compute_consistency(turns, persona_data if isinstance(persona_data, dict) else {})
+    findings.extend(consistency.get("findings", []))
+    consistency_obs = consistency.get("observations", {})
+
     # ================= 健康分与摘要 =================
     ess = sum(total_error(s.x_after, targets) for s in slots[-12:]) / max(1, len(slots[-12:]))
     max_bias = max((abs(d["xhat_bias"]) for d in dims if d["xhat_bias"] is not None), default=0)
@@ -382,6 +393,10 @@ def compute_insights(
         "no_recover": len(no_recover),
         # 画像精度：没有估计时按满误差 0.5 计（不作为不能免罚——否则 stub 反而占便宜）
         "persona_err": persona_err if persona_err is not None else 0.5,
+        # 行为一致性观测值
+        "pac_conflict": consistency_obs.get("pac_conflict", 0.0),
+        "wsc_incoherent": consistency_obs.get("wsc_incoherent", 0.0),
+        "pra_misaligned": consistency_obs.get("pra_misaligned", 0.0),
     }
     deductions = {
         k: min(w[k][1], observations[k] * w[k][0]) for k in observations
@@ -393,16 +408,22 @@ def compute_insights(
     stats["n_turns"] = len(turns)
     stats["n_sessions"] = len(sessions)
     stats["days"] = days_n
+    stats["consistency"] = consistency.get("metrics", {})
 
     n_err = sum(1 for f in findings if f["severity"] == "error")
     n_warn = sum(1 for f in findings if f["severity"] == "warn")
-    persona = meta.get("persona", {})
-    top_sugs = [f for f in findings if f["suggestion"]][:3]
+    n_consistency = sum(1 for f in findings if f.get("category") == "一致性")
+    persona = meta.get("persona", {}) if isinstance(meta.get("persona"), dict) else {}
+    top_sugs = [f for f in findings if f.get("suggestion")][:3]
+    consistency_warn = ""
+    if n_consistency > 0:
+        consistency_warn = f"⚠ 行为一致性违规 ×{n_consistency}；"
     summary = (
         f"本次运行 {days_n} 天 · 角色 {persona.get('name', '?')}（{persona.get('archetype', '?')}）· "
         f"{len(sessions)} 个 session / {len(turns)} 个 turn · 健康分 {health}/100。"
         f"最差维度：{worst_dim['label']}（带内 {worst_dim['in_band']:.0%}）；"
         f"扰动 {len(disturbances)} 次，{len(no_recover)} 次无恢复响应；"
+        f"{consistency_warn}"
         f"发现 {n_err} 个故障、{n_warn} 个警告。"
         + ("首要建议：" + top_sugs[0]["suggestion"] if top_sugs else "整体健康，无紧急问题。")
     )
@@ -419,6 +440,7 @@ def compute_insights(
         "slot_profile": slot_profile,
         "series_analysis": series_analysis,
         "stats": stats,
+        "consistency": consistency.get("metrics", {}),
     }
 
 

@@ -1,0 +1,26 @@
+{
+  "饥饿": {
+    "accumulate": "由饱腹推导（低饱腹加速）",
+    "satisfy_events": "吃好吃的/三餐",
+    "urge_curve": "x**3",
+    "satisfy_curve": "1+1.5*u"
+  },
+  "社交": {
+    "accumulate": "+0.01/时段（外向×1.6）",
+    "satisfy_events": "朋友小聚/应酬",
+    "urge_curve": "x**2",
+    "satisfy_curve": "1+0.8*u"
+  },
+  "刺激": {
+    "accumulate": "单调-0.01/时段，新异+0.12",
+    "satisfy_events": "看展/旅行/新地方",
+    "urge_curve": "1-(2*x-1)**2",
+    "satisfy_curve": "0.6+0.8*(1-abs(2*x-1))"
+  },
+  "成就": {
+    "accumulate": "备考/截止逼近陡增",
+    "satisfy_events": "刷题/工作推进",
+    "urge_curve": "x**2.5",
+    "satisfy_curve": "1+1.2*u"
+  }
+}
