@@ -43,8 +43,6 @@ export function TrajectoryPanel({ slots, series = [] }: { slots: Slot[]; series?
             <ChartGrid />
             <ThemedXAxis dataKey="day" type="number" domain={[0, 'dataMax']} tickFormatter={(x: number) => `${Math.floor(x)}`} />
             <ThemedYAxis domain={view === 'money' ? ['auto', 'auto'] : [0, 1]} />
-            <ThemedTooltip labelFormatter={(x: number) => `第 ${Math.floor(Number(x)) + 1} 天`}
-              formatter={(val: number) => [view === 'money' ? `¥${val}` : val.toFixed(3), view === 'money' ? '金钱' : dim.label]} />
             {view !== 'money' && (
               <>
                 <ReferenceLine y={dim.target} stroke={dimColor} strokeDasharray="6 4"
@@ -61,6 +59,8 @@ export function TrajectoryPanel({ slots, series = [] }: { slots: Slot[]; series?
                 label={{ value: `${s.icon}${s.name}`, fill: cssVar('--series'), fontSize: 10, position: 'insideTop' }} />
             ))}
             <Line type="monotone" dataKey="value" stroke={view === 'money' ? cssVar('--satiety') : dimColor} strokeWidth={1.8} dot={false} />
+            <ThemedTooltip labelFormatter={(x: number) => `第 ${Math.floor(Number(x)) + 1} 天`}
+              formatter={(val: number) => [view === 'money' ? `¥${val}` : val.toFixed(3), view === 'money' ? '金钱' : dim.label]} />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
@@ -101,11 +101,11 @@ export function EconomyPanel({ slots, events }: { slots: Slot[]; events: RunEven
               <ThemedXAxis dataKey="day" tickFormatter={(x: number) => `${x + 1}`} />
               <ThemedYAxis yAxisId="left" />
               <ThemedYAxis yAxisId="right" orientation="right" />
-              <ThemedTooltip labelFormatter={(x: number) => `第 ${Number(x) + 1} 天`} />
               <Legend wrapperStyle={{ fontSize: 11, color: cssVar('--text-2') }} />
               <Bar yAxisId="left" dataKey="delta" name="日净变动" fill={cssVar('--energy')} radius={[3, 3, 0, 0]} />
               <Bar yAxisId="left" dataKey="spend" name="事件消费" fill={cssVar('--critical')} radius={[3, 3, 0, 0]} />
               <Line yAxisId="right" type="monotone" dataKey="money" name="余额" stroke={cssVar('--satiety')} strokeWidth={2} dot={false} />
+              <ThemedTooltip labelFormatter={(x: number) => `第 ${Number(x) + 1} 天`} />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -136,8 +136,8 @@ export function EstErrPanel({ report, turns }: { report: Report | null; turns: T
               <ChartGrid />
               <ThemedXAxis dataKey="day" />
               <ThemedYAxis />
-              <ThemedTooltip />
               <Line type="monotone" dataKey="err" stroke={cssVar('--persona')} strokeWidth={2} dot={false} />
+              <ThemedTooltip />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -151,8 +151,8 @@ export function EstErrPanel({ report, turns }: { report: Report | null; turns: T
               <ChartGrid />
               <ThemedXAxis dataKey="idx" />
               <ThemedYAxis />
-              <ThemedTooltip />
               <Line type="monotone" dataKey="err" stroke={cssVar('--accent')} strokeWidth={1.5} dot={{ r: 1.5, fill: cssVar('--accent') }} />
+              <ThemedTooltip />
             </ComposedChart>
           </ResponsiveContainer>
         </div>

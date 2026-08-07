@@ -4,10 +4,10 @@
     "action": "吃好吃的",
     "category": "饮食",
     "base_effect": {
-      "valence": 0.0,
-      "energy": 0.0,
+      "valence": 0,
+      "energy": 0,
       "satiety": 0.25,
-      "stress": 0.0
+      "stress": 0
     },
     "design_intent": "都能吃饱；档位差异主要体现在心情与减压——低档吃饱不开心",
     "variants": [
@@ -24,8 +24,8 @@
               0.1
             ]
           },
-          "energy": 0.0,
-          "satiety": 0.0,
+          "energy": 0,
+          "satiety": 0,
           "stress": -0.02
         },
         "effect": {
@@ -35,7 +35,7 @@
               0.1
             ]
           },
-          "energy": 0.0,
+          "energy": 0,
           "satiety": 0.25,
           "stress": -0.02
         }
@@ -48,13 +48,13 @@
         "span": 1,
         "weight": {
           "valence": 0.1,
-          "energy": 0.0,
-          "satiety": 0.0,
+          "energy": 0,
+          "satiety": 0,
           "stress": -0.06
         },
         "effect": {
           "valence": 0.1,
-          "energy": 0.0,
+          "energy": 0,
           "satiety": 0.25,
           "stress": -0.06
         }
@@ -67,13 +67,13 @@
         "span": 1,
         "weight": {
           "valence": 0.2,
-          "energy": 0.0,
-          "satiety": 0.0,
+          "energy": 0,
+          "satiety": 0,
           "stress": -0.1
         },
         "effect": {
           "valence": 0.2,
-          "energy": 0.0,
+          "energy": 0,
           "satiety": 0.25,
           "stress": -0.1
         }
@@ -85,10 +85,10 @@
     "action": "好好休息",
     "category": "休息",
     "base_effect": {
-      "valence": 0.0,
+      "valence": 0,
       "energy": 0.15,
-      "satiety": 0.0,
-      "stress": 0.0
+      "satiety": 0,
+      "stress": 0
     },
     "design_intent": "躺着总能歇点；付费档位把预算大幅加权到减压",
     "variants": [
@@ -99,15 +99,15 @@
         "cost": 0,
         "span": 1,
         "weight": {
-          "valence": 0.0,
+          "valence": 0,
           "energy": 0.05,
-          "satiety": 0.0,
+          "satiety": 0,
           "stress": -0.05
         },
         "effect": {
-          "valence": 0.0,
+          "valence": 0,
           "energy": 0.2,
-          "satiety": 0.0,
+          "satiety": 0,
           "stress": -0.05
         }
       },
@@ -119,14 +119,14 @@
         "span": 1,
         "weight": {
           "valence": 0.06,
-          "energy": 0.0,
-          "satiety": 0.0,
+          "energy": 0,
+          "satiety": 0,
           "stress": -0.14
         },
         "effect": {
           "valence": 0.06,
           "energy": 0.15,
-          "satiety": 0.0,
+          "satiety": 0,
           "stress": -0.14
         }
       },
@@ -139,13 +139,13 @@
         "weight": {
           "valence": 0.1,
           "energy": 0.1,
-          "satiety": 0.0,
+          "satiety": 0,
           "stress": -0.2
         },
         "effect": {
           "valence": 0.1,
           "energy": 0.25,
-          "satiety": 0.0,
+          "satiety": 0,
           "stress": -0.2
         }
       }
@@ -156,9 +156,9 @@
     "action": "出门走走",
     "category": "户外",
     "base_effect": {
-      "valence": 0.0,
-      "energy": 0.0,
-      "satiety": 0.0,
+      "valence": 0,
+      "energy": 0,
+      "satiety": 0,
       "stress": -0.08
     },
     "design_intent": "出门就解压（基础档免费兜底）；档位加权到心情",
@@ -171,14 +171,14 @@
         "span": 1,
         "weight": {
           "valence": 0.03,
-          "energy": 0.0,
-          "satiety": 0.0,
-          "stress": 0.0
+          "energy": 0,
+          "satiety": 0,
+          "stress": 0
         },
         "effect": {
           "valence": 0.03,
-          "energy": 0.0,
-          "satiety": 0.0,
+          "energy": 0,
+          "satiety": 0,
           "stress": -0.08
         }
       },
@@ -191,13 +191,13 @@
         "weight": {
           "valence": 0.06,
           "energy": 0.02,
-          "satiety": 0.0,
-          "stress": 0.0
+          "satiety": 0,
+          "stress": 0
         },
         "effect": {
           "valence": 0.06,
           "energy": 0.02,
-          "satiety": 0.0,
+          "satiety": 0,
           "stress": -0.08
         }
       },
@@ -210,13 +210,13 @@
         "weight": {
           "valence": 0.1,
           "energy": -0.06,
-          "satiety": 0.0,
+          "satiety": 0,
           "stress": -0.08
         },
         "effect": {
           "valence": 0.1,
           "energy": -0.06,
-          "satiety": 0.0,
+          "satiety": 0,
           "stress": -0.16
         }
       }
@@ -228,8 +228,8 @@
     "category": "旅行",
     "base_effect": {
       "valence": 0.12,
-      "energy": 0.0,
-      "satiety": 0.0,
+      "energy": 0,
+      "satiety": 0,
       "stress": -0.1
     },
     "design_intent": "旅行都有基础回血；时长与地点共同决定加权幅度，价格陡增",
@@ -241,15 +241,15 @@
         "cost": 300,
         "span": 2,
         "weight": {
-          "valence": 0.0,
-          "energy": 0.0,
-          "satiety": 0.0,
-          "stress": 0.0
+          "valence": 0,
+          "energy": 0,
+          "satiety": 0,
+          "stress": 0
         },
         "effect": {
           "valence": 0.12,
-          "energy": 0.0,
-          "satiety": 0.0,
+          "energy": 0,
+          "satiety": 0,
           "stress": -0.1
         }
       },
@@ -262,13 +262,13 @@
         "weight": {
           "valence": 0.08,
           "energy": 0.05,
-          "satiety": 0.0,
+          "satiety": 0,
           "stress": -0.08
         },
         "effect": {
           "valence": 0.2,
           "energy": 0.05,
-          "satiety": 0.0,
+          "satiety": 0,
           "stress": -0.18
         }
       },
@@ -281,13 +281,13 @@
         "weight": {
           "valence": 0.15,
           "energy": 0.08,
-          "satiety": 0.0,
+          "satiety": 0,
           "stress": -0.12
         },
         "effect": {
           "valence": 0.27,
           "energy": 0.08,
-          "satiety": 0.0,
+          "satiety": 0,
           "stress": -0.22
         }
       }
@@ -298,9 +298,9 @@
     "action": "运动健身",
     "category": "运动",
     "base_effect": {
-      "valence": 0.0,
+      "valence": 0,
       "energy": -0.03,
-      "satiety": 0.0,
+      "satiety": 0,
       "stress": -0.08
     },
     "design_intent": "运动都累但都降压（以精力换降压）；档位提升降压效率",
@@ -312,15 +312,35 @@
         "cost": 0,
         "span": 1,
         "weight": {
-          "valence": 0.03,
-          "energy": 0.0,
-          "satiety": 0.0,
-          "stress": 0.0
+          "valence": {
+            "pull": [
+              0.5,
+              0.1
+            ]
+          },
+          "energy": {
+            "pull": [
+              0.5,
+              0.1
+            ]
+          },
+          "satiety": 0,
+          "stress": 0
         },
         "effect": {
-          "valence": 0.03,
-          "energy": -0.03,
-          "satiety": 0.0,
+          "valence": {
+            "pull": [
+              0.5,
+              0.1
+            ]
+          },
+          "energy": {
+            "pull": [
+              0.5,
+              0.1
+            ]
+          },
+          "satiety": 0,
           "stress": -0.08
         }
       },
@@ -332,14 +352,14 @@
         "span": 1,
         "weight": {
           "valence": 0.05,
-          "energy": 0.0,
-          "satiety": 0.0,
+          "energy": 0,
+          "satiety": 0,
           "stress": -0.05
         },
         "effect": {
           "valence": 0.05,
           "energy": -0.03,
-          "satiety": 0.0,
+          "satiety": 0,
           "stress": -0.13
         }
       },
@@ -352,13 +372,13 @@
         "weight": {
           "valence": 0.08,
           "energy": -0.02,
-          "satiety": 0.0,
+          "satiety": 0,
           "stress": -0.08
         },
         "effect": {
           "valence": 0.08,
           "energy": -0.05,
-          "satiety": 0.0,
+          "satiety": 0,
           "stress": -0.16
         }
       }
@@ -370,9 +390,9 @@
     "category": "居家",
     "base_effect": {
       "valence": 0.06,
-      "energy": 0.0,
-      "satiety": 0.0,
-      "stress": 0.0
+      "energy": 0,
+      "satiety": 0,
+      "stress": 0
     },
     "design_intent": "宅都有点小开心；做顿好的把加权分到饱腹",
     "variants": [
@@ -383,14 +403,14 @@
         "cost": 0,
         "span": 1,
         "weight": {
-          "valence": 0.0,
-          "energy": 0.0,
+          "valence": 0,
+          "energy": 0,
           "satiety": -0.05,
           "stress": -0.06
         },
         "effect": {
           "valence": 0.06,
-          "energy": 0.0,
+          "energy": 0,
           "satiety": -0.05,
           "stress": -0.06
         }
@@ -402,14 +422,14 @@
         "cost": 40,
         "span": 1,
         "weight": {
-          "valence": 0.0,
-          "energy": 0.0,
+          "valence": 0,
+          "energy": 0,
           "satiety": 0.25,
           "stress": -0.05
         },
         "effect": {
           "valence": 0.06,
-          "energy": 0.0,
+          "energy": 0,
           "satiety": 0.25,
           "stress": -0.05
         }

@@ -24,12 +24,12 @@ export function ChartGrid() {
 
 export function ThemedXAxis(props: any) {
   const t = useChartTheme()
-  return <XAxis tick={{ fill: t.tick, fontSize: 10 }} stroke={t.axis} tickLine={false} {...props} />
+  return <XAxis tick={{ fill: t.tick, fontSize: 10 }} stroke={t.tick} strokeWidth={1.5} tickLine={false} {...props} />
 }
 
 export function ThemedYAxis(props: any) {
   const t = useChartTheme()
-  return <YAxis tick={{ fill: t.tick, fontSize: 10 }} stroke={t.axis} tickLine={false} {...props} />
+  return <YAxis tick={{ fill: t.tick, fontSize: 10 }} stroke={t.tick} strokeWidth={1.5} tickLine={false} {...props} />
 }
 
 function TooltipRow({ color, name, value }: { color: string; name: string; value: string }) {

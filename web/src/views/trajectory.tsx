@@ -66,7 +66,6 @@ export default function UnifiedTrajectory({ slots, series, curT, onSeek }: {
             <ThemedYAxis yAxisId="left" domain={[0, 1]} />
             <ThemedYAxis yAxisId="right" orientation="right" tick={{ fill: cssVar('--satiety'), fontSize: 10 }}
               tickFormatter={(x: number) => `¥${x}`} />
-            <ThemedTooltip labelFormatter={(x: number) => `第 ${Math.floor(Number(x)) + 1} 天`} />
             <Legend wrapperStyle={{ fontSize: 11, color: cssVar('--text-2') }} />
             {series.map((s, i) => (
               <ReferenceArea key={s.id} x1={s.start_day} x2={s.end_day} yAxisId="left"
@@ -82,6 +81,7 @@ export default function UnifiedTrajectory({ slots, series, curT, onSeek }: {
             ))}
             <Line yAxisId="right" type="monotone" dataKey="money" name="金钱（右轴）"
               stroke={cssVar('--satiety')} strokeWidth={1.5} strokeDasharray="5 3" dot={false} />
+            <ThemedTooltip labelFormatter={(x: number) => `第 ${Math.floor(Number(x)) + 1} 天`} />
           </ComposedChart>
         </ResponsiveContainer>
       </div>

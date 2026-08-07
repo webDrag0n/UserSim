@@ -244,8 +244,8 @@ export function PersonaPanel({ persona, turns, curT, report }: {
                 <ChartGrid />
                 <ThemedXAxis dataKey="day" />
                 <ThemedYAxis domain={[0, 'auto']} />
-                <ThemedTooltip />
                 <Line type="monotone" dataKey="err" stroke={cssVar('--series')} strokeWidth={2} dot={false} />
+                <ThemedTooltip />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
