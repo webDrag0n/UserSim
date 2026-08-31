@@ -204,6 +204,11 @@ export default function Console({ runId, onBack }: { runId: string; onBack: () =
           </span>
         )}
         {verdict && <Badge label={verdict.label} color={cssVar(verdict.cssVar)} icon={verdict.icon} />}
+        {detail?.meta?.profiles && (
+          <span className="rounded-full px-2.5 py-0.5 text-[11px] font-num text-t3 border border-edge bg-surface-2">
+            助手 {detail.meta.profiles.assistant ?? '—'} · 用户 {detail.meta.profiles.user ?? '—'}
+          </span>
+        )}
         <div className="ml-auto flex items-center gap-2">
           <input type="number" value={extraDays} min={1} onChange={(e) => setExtraDays(+e.target.value)}
             className="w-16 rounded-xl bg-surface-2 border border-edge px-2 py-1.5 text-xs text-t1 font-num" />

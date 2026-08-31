@@ -27,7 +27,7 @@ def test_harnesses_endpoint_lists_registry(client) -> None:
     body = r.json()
     names = {item["name"] for item in body["items"]}
     assert {"reference", "stub"} <= names
-    assert body["default"] == "reference"
+    assert body["default"] == "openclaw"
     assert all(item["doc"] for item in body["items"]), "每个 harness 应有一行说明"
 
 
@@ -47,13 +47,15 @@ def test_balance_endpoint(client) -> None:
     assert r.status_code == 200
     body = r.json()
     assert body["source"] in ("json", "default")
-    # effect 字段已统一为四维
+    # 事件表：无 variants、无效果；地点表：supports 携带价格与效果
     for action in body["files"].get("recovery_actions", []):
-        for dim in ("valence", "energy", "satiety", "stress"):
-            assert dim in action["base_effect"]
-            for v in action.get("variants", []):
-                assert dim in v["weight"]
-                assert dim in v["effect"]
+        assert "variants" not in action and "base_effect" not in action
+        for f in ("id", "action", "category", "design_intent"):
+            assert f in action
+    for venue in body["files"].get("venues", []):
+        assert venue["supports"], f"{venue.get('id')} 无支持条目"
+        for s in venue["supports"]:
+            assert "event" in s and "cost" in s and "effect" in s
 
 
 def test_eval_formula_endpoint(client) -> None:

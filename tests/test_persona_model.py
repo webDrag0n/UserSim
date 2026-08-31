@@ -14,7 +14,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from usersim.agents.assistant.profile import ProfileTracker
+from usersim.agents.profile import ProfileTracker
 from usersim.config import load_system_config
 from usersim.contracts import (
     FACET_KEYS,
@@ -23,7 +23,10 @@ from usersim.contracts import (
     PersonaBelief,
     PersonaBeliefDelta,
     Preferences,
+    RunMeta,
+    SlotSettlement,
     StateVec,
+    TurnRecord,
     facet_error,
     prefs_error,
     tag_hit_rate,
@@ -258,26 +261,101 @@ def test_prefs_error_and_tag_f1() -> None:
 
 
 # ---------------------------------------------------------------
-# 7. 端到端：逐 turn 落盘 + 可评估 + 三档可分辨
+# 7. 端到端：逐 turn 落盘 + 可评估 + 三档可分辨（合成 run 目录，0 LLM）
+#
+# replay 模式下线后，这里不再起真实世界：手写合成 run 目录
+# （meta.json + slots.jsonl + turns.jsonl，persona_hat 序列为合成数据），
+# 再走 evaluate_run 的落盘评估路径。断言语义不变。
 # ---------------------------------------------------------------
 
 
+def _synth_slots(days: int) -> list[SlotSettlement]:
+    """平稳收敛的合成轨迹（其余维在目标上，仅 stress 指数回落）。"""
+    slots = []
+    for t in range(days * 4):
+        stress = round(0.30 + 0.3 * (0.8 ** t), 4)
+        x = StateVec(valence=0.72, energy=0.70, satiety=0.65, stress=min(1.0, stress))
+        slots.append(SlotSettlement(t_logical=t, x_before=x, x_after=x, slots_per_day=4))
+    return slots
+
+
+def _good_hat(i: int, day: int, persona: Persona) -> PersonaBelief:
+    """好助手画像：facet 覆盖随 turn 增长，误差随天数指数收缩，第 3 天起命中爱憎。"""
+    truth = persona.facets
+    n = min(len(FACET_KEYS), 2 + i)
+    delta = round(35 * 0.7 ** day)  # 逐 facet 绝对误差（0-100 量尺）
+    facets = {k: (truth[k] + delta if truth[k] <= 65 else truth[k] - delta)
+              for k in FACET_KEYS[:n]}
+    cats = {}
+    for c in PREF_CATEGORIES[:4]:
+        cv = float(persona.prefs.categories.get(c, 0.0))
+        e = 0.4 * 0.8 ** day
+        cats[c] = round(max(-1.0, min(1.0, cv + e if cv <= 0 else cv - e)), 3)
+    known_tags = i >= 6
+    return PersonaBelief(
+        facets=facets, categories=cats,
+        loves=list(persona.prefs.loves) if known_tags else [],
+        hates=list(persona.prefs.hates) if known_tags else [],
+        confidence=0.8, notes=f"第{day}天画像")
+
+
+def _poor_hat(i: int, day: int, persona: Persona) -> PersonaBelief:
+    """差助手画像：只估 3 个 facet、每个错 40 分、从不更新。"""
+    truth = persona.facets
+    facets = {k: (truth[k] + 40 if truth[k] <= 60 else truth[k] - 40)
+              for k in FACET_KEYS[:3]}
+    return PersonaBelief(facets=facets, confidence=0.3)
+
+
+def _write_synth_run(out_root, run_id: str, persona: Persona, days: int, hat_plan):
+    """手写合成 run 目录（meta.json / slots.jsonl / turns.jsonl）。"""
+    run_dir = out_root / run_id
+    run_dir.mkdir(parents=True)
+    slots = _synth_slots(days)
+    with (run_dir / "slots.jsonl").open("w", encoding="utf-8") as f:
+        for s in slots:
+            f.write(json.dumps(s.model_dump(), ensure_ascii=False) + "\n")
+    turns = []
+    tid = 0
+    for i in range(days * 2):  # 每天 1 个 user + 1 个 assistant turn
+        d = i // 2
+        t_logical = d * 4 + 1
+        x = slots[t_logical].x_after
+        turns.append(TurnRecord(run_id=run_id, t_logical=t_logical, turn_id=tid,
+                                speaker="user", text=f"第{d}天的第{i}句感受", x_true=x))
+        tid += 1
+        turns.append(TurnRecord(run_id=run_id, t_logical=t_logical, turn_id=tid,
+                                speaker="assistant", text=f"第{d}天的回复", x_true=x,
+                                persona_hat=hat_plan(i, d, persona)))
+        tid += 1
+    with (run_dir / "turns.jsonl").open("w", encoding="utf-8") as f:
+        for t in turns:
+            f.write(json.dumps(t.model_dump(), ensure_ascii=False) + "\n")
+    meta = RunMeta(run_id=run_id, seed=7, started_at="2026-08-19T00:00:00+00:00",
+                   days=days, config_hash="synthetic", persona=persona,
+                   profiles={"user": "standard", "assistant": "reference"})
+    (run_dir / "meta.json").write_text(meta.model_dump_json(indent=2), encoding="utf-8")
+    return run_dir
+
+
 @pytest.fixture(scope="module")
-def replay_runs(tmp_path_factory):
+def synth_runs(tmp_path_factory):
+    """三个合成 run：good（画像越聊越准）/ poor（瞎猜不更新）/ none（从不画像）。"""
     from usersim.evaluator.report import evaluate_run
-    from usersim.runner import run_replay
 
     cfg = load_system_config()
+    persona = _world(seed=7).persona
     out = tmp_path_factory.mktemp("persona_runs")
+    plans = {"good": _good_hat, "poor": _poor_hat, "none": lambda i, d, p: None}
     result = {}
-    for q in ("good", "poor"):
-        run_dir = run_replay(seed=7, days=14, quality=q, cfg=cfg, out_root=out, run_id=f"p_{q}")
+    for q, plan in plans.items():
+        run_dir = _write_synth_run(out, f"p_{q}", persona, days=14, hat_plan=plan)
         result[q] = (run_dir, evaluate_run(run_dir, cfg))
     return result
 
 
-def test_every_assistant_turn_records_persona_hat(replay_runs) -> None:
-    run_dir, _ = replay_runs["good"]
+def test_every_assistant_turn_records_persona_hat(synth_runs) -> None:
+    run_dir, _ = synth_runs["good"]
     turns = [json.loads(l) for l in (run_dir / "turns.jsonl").read_text(encoding="utf-8").splitlines()]
     asst = [t for t in turns if t["speaker"] == "assistant"]
     assert asst and all(t.get("persona_hat") for t in asst), "每个助手 turn 都应落盘画像估计"
@@ -286,8 +364,8 @@ def test_every_assistant_turn_records_persona_hat(replay_runs) -> None:
     assert covs[-1] > covs[0] and covs == sorted(covs)
 
 
-def test_report_exposes_profile_metrics(replay_runs) -> None:
-    _, report = replay_runs["good"]
+def test_report_exposes_profile_metrics(synth_runs) -> None:
+    _, report = synth_runs["good"]
     for key in ("persona_err_final", "persona_err_slope_per_day", "persona_coverage",
                 "prefs_err_final", "prefs_tag_f1", "daily_persona_err"):
         assert key in report
@@ -295,25 +373,32 @@ def test_report_exposes_profile_metrics(replay_runs) -> None:
     assert 0 <= report["persona_coverage"] <= 1
 
 
-def test_good_harness_profiles_better_than_poor(replay_runs) -> None:
+def test_good_harness_profiles_better_than_poor(synth_runs) -> None:
     """画像精度必须能分辨助手质量——否则这个指标没有意义。"""
-    _, good = replay_runs["good"]
-    _, poor = replay_runs["poor"]
+    _, good = synth_runs["good"]
+    _, poor = synth_runs["poor"]
     assert good["persona_err_final"] < poor["persona_err_final"]
 
 
-def test_good_harness_learns_over_time(replay_runs) -> None:
+def test_good_harness_learns_over_time(synth_runs) -> None:
     """越聊越懂用户：误差斜率应为负。"""
-    _, good = replay_runs["good"]
+    _, good = synth_runs["good"]
     assert good["persona_err_slope_per_day"] < 0
 
 
-def test_health_score_penalizes_missing_profile(replay_runs) -> None:
+def test_health_score_penalizes_missing_profile(synth_runs) -> None:
     """不做画像的助手要被扣分（否则 stub 反而占便宜）。"""
-    run_dir, _ = replay_runs["good"]
-    insights = json.loads((run_dir / "insights.json").read_text(encoding="utf-8"))
-    assert "persona_err" in insights["stats"]["score_deductions"]
-    assert insights["stats"]["persona_turns"] > 0
+    good_dir, _ = synth_runs["good"]
+    none_dir, _ = synth_runs["none"]
+    good_ins = json.loads((good_dir / "insights.json").read_text(encoding="utf-8"))
+    none_ins = json.loads((none_dir / "insights.json").read_text(encoding="utf-8"))
+    assert "persona_err" in good_ins["stats"]["score_deductions"]
+    assert good_ins["stats"]["persona_turns"] > 0
+    # 无画像：persona_err 按满误差 0.5 计 → 扣分显著更重，健康分更低
+    assert none_ins["stats"]["persona_turns"] == 0
+    assert (none_ins["stats"]["score_deductions"]["persona_err"]
+            > good_ins["stats"]["score_deductions"]["persona_err"])
+    assert none_ins["health_score"] < good_ins["health_score"]
 
 
 # ---------------------------------------------------------------

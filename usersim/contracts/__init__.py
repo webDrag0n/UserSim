@@ -1,5 +1,23 @@
 """contracts 包：唯一允许被所有业务包 import 的层。"""
 
+from usersim.contracts.agent_api import (
+    INTENT_ACHIEVE,
+    INTENT_EAT,
+    INTENT_EMERGENCY,
+    INTENT_RECOVER,
+    INTENT_SLEEP,
+    INTENT_SOCIAL,
+    INTENT_STIMULATE,
+    AgentRequest,
+    AgentResponse,
+    DecideOpenRequest,
+    DecideOpenResult,
+    Intent,
+    PlanSlotRequest,
+    PlanSlotResult,
+    SessionClosedNotice,
+    SpeakRequest,
+)
 from usersim.contracts.metrics import (
     DIMS,
     LOWER_IS_BETTER,
@@ -27,6 +45,7 @@ from usersim.contracts.models import (
     UserAction,
     UserBelief,
     UserContext,
+    merge_persona_delta,
 )
 from usersim.contracts.persona import (
     BIG5_DOMAINS,
@@ -72,6 +91,24 @@ __all__ = [
     "UserAction",
     "UserBelief",
     "UserContext",
+    "merge_persona_delta",
+    # ---- Agent 接入 wire 协议（contracts.agent_api）----
+    "INTENT_EAT",
+    "INTENT_SOCIAL",
+    "INTENT_STIMULATE",
+    "INTENT_RECOVER",
+    "INTENT_SLEEP",
+    "INTENT_ACHIEVE",
+    "INTENT_EMERGENCY",
+    "Intent",
+    "PlanSlotRequest",
+    "PlanSlotResult",
+    "DecideOpenRequest",
+    "DecideOpenResult",
+    "SpeakRequest",
+    "SessionClosedNotice",
+    "AgentRequest",
+    "AgentResponse",
     # ---- 人格/喜好词表与画像度量（contracts.persona）----
     "BIG5_DOMAINS",
     "BIG5_FACETS",

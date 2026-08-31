@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UserSim Benchmark 设计白皮书 — 评测智能体的长期陪伴能力</title>
+<style>
+  :root {
+    --ink: #1f2937;
+    --ink-soft: #4b5563;
+    --ink-faint: #6b7280;
+    --accent: #0f766e;
+    --accent-soft: #ccfbf1;
+    --accent-2: #b45309;
+    --accent-2-soft: #fef3c7;
+    --blue: #1d4ed8;
+    --blue-soft: #dbeafe;
+    --red: #b91c1c;
+    --red-soft: #fee2e2;
+    --bg: #f8faf9;
+    --card: #ffffff;
+    --line: #e5e7eb;
+    --code-bg: #f3f4f6;
+    --mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --serif: "Noto Serif SC", "Songti SC", Georgia, serif;
+    --sans: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--sans); font-size: 16px; line-height: 1.85;
+  }
+  /* ---------- layout ---------- */
+  .layout { display: flex; max-width: 1280px; margin: 0 auto; }
+  nav.toc {
+    position: sticky; top: 0; align-self: flex-start; height: 100vh; overflow-y: auto;
+    width: 260px; flex-shrink: 0; padding: 96px 20px 40px 28px; font-size: 13.5px;
+  }
+  nav.toc .toc-title { font-weight: 700; font-size: 12px; letter-spacing: .12em; color: var(--ink-faint); text-transform: uppercase; margin-bottom: 10px; }
+  nav.toc a { display: block; color: var(--ink-soft); text-decoration: none; padding: 4px 0 4px 12px; border-left: 2px solid var(--line); line-height: 1.5; }
+  nav.toc a:hover { color: var(--accent); border-left-color: var(--accent); }
+  nav.toc a.l2 { padding-left: 26px; font-size: 12.5px; color: var(--ink-faint); }
+  main { flex: 1; min-width: 0; padding: 0 48px 120px 36px; max-width: 900px; }
+  @media (max-width: 1000px) { nav.toc { display: none; } main { padding: 0 20px 100px; } }
+
+  /* ---------- hero ---------- */
+  .hero { padding: 88px 0 56px; border-bottom: 1px solid var(--line); margin-bottom: 48px; }
+  .hero .kicker { color: var(--accent); font-weight: 700; font-size: 13px; letter-spacing: .2em; text-transform: uppercase; }
+  .hero h1 { font-family: var(--serif); font-size: 42px; line-height: 1.25; margin: 14px 0 18px; font-weight: 700; }
+  .hero .subtitle { font-size: 19px; color: var(--ink-soft); max-width: 640px; }
+  .hero .meta { margin-top: 26px; font-size: 13.5px; color: var(--ink-faint); }
+  .hero .meta span { margin-right: 22px; }
+
+  /* ---------- sections ---------- */
+  section { margin-bottom: 64px; }
+  h2 { font-family: var(--serif); font-size: 30px; margin: 0 0 8px; padding-top: 24px; font-weight: 700; }
+  h2 .num { color: var(--accent); margin-right: 12px; font-size: 22px; vertical-align: 3px; }
+  h3 { font-size: 20px; margin: 40px 0 10px; font-weight: 700; }
+  h4 { font-size: 16.5px; margin: 28px 0 8px; font-weight: 700; color: var(--ink); }
+  p { margin: 12px 0; }
+  .lead { font-size: 17.5px; color: var(--ink-soft); }
+  strong { color: var(--ink); }
+
+  /* ---------- components ---------- */
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 22px 26px; margin: 18px 0; }
+  .callout { border-left: 4px solid var(--accent); background: var(--accent-soft); border-radius: 0 10px 10px 0; padding: 14px 20px; margin: 18px 0; }
+  .callout.amber { border-left-color: var(--accent-2); background: var(--accent-2-soft); }
+  .callout.red { border-left-color: var(--red); background: var(--red-soft); }
+  .callout.blue { border-left-color: var(--blue); background: var(--blue-soft); }
+  .callout .callout-title { font-weight: 700; margin-bottom: 4px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  @media (max-width: 760px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
+
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 14px; background: var(--card); border-radius: 10px; overflow: hidden; border: 1px solid var(--line); }
+  th { background: #f0fdfa; color: #134e4a; text-align: left; padding: 10px 12px; font-weight: 700; border-bottom: 2px solid var(--accent); white-space: nowrap; }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #fafafa; }
+  td.num, th.num { text-align: right; font-family: var(--mono); font-size: 13px; white-space: nowrap; }
+  td.mono, .mono { font-family: var(--mono); font-size: 13px; }
+
+  code { font-family: var(--mono); font-size: 13.5px; background: var(--code-bg); padding: 2px 6px; border-radius: 5px; }
+  pre { background: #0f172a; color: #e2e8f0; border-radius: 12px; padding: 20px 24px; overflow-x: auto; font-size: 13.5px; line-height: 1.7; }
+  pre code { background: none; color: inherit; padding: 0; }
+
+  .formula {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 18px 26px; margin: 18px 0; text-align: center;
+    font-family: Georgia, "Times New Roman", serif; font-size: 18px; overflow-x: auto;
+  }
+  .formula .sub { font-size: 12.5px; vertical-align: sub; }
+  .formula-note { text-align: center; font-size: 13px; color: var(--ink-faint); margin-top: -10px; }
+
+  .tag { display: inline-block; font-size: 11.5px; font-weight: 700; padding: 2px 10px; border-radius: 999px; letter-spacing: .04em; }
+  .tag.control { background: var(--blue-soft); color: var(--blue); }
+  .tag.belief { background: var(--accent-soft); color: var(--accent); }
+  .tag.gate { background: var(--accent-2-soft); color: var(--accent-2); }
+
+  .principle { display: flex; gap: 18px; margin: 20px 0; }
+  .principle .glyph {
+    flex-shrink: 0; width: 44px; height: 44px; border-radius: 12px; background: var(--accent-soft);
+    color: var(--accent); font-weight: 800; font-size: 19px; display: flex; align-items: center; justify-content: center;
+    font-family: var(--serif);
+  }
+  .principle h4 { margin: 4px 0 4px; }
+
+  .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 16px 0; font-size: 13.5px; }
+  .flow .node { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; font-family: var(--mono); font-size: 12.5px; }
+  .flow .node.hl { border-color: var(--accent); background: var(--accent-soft); color: #134e4a; font-weight: 700; }
+  .flow .arrow { color: var(--ink-faint); }
+
+  ul.tight li, ol.tight li { margin: 6px 0; }
+  .footnote { font-size: 13px; color: var(--ink-faint); border-top: 1px solid var(--line); padding-top: 16px; margin-top: 48px; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav class="toc">
+  <div class="toc-title">目录</div>
+  <a href="#why">一、为什么需要 UserSim</a>
+  <a href="#philosophy">二、核心设计理念</a>
+  <a href="#loop">三、控制回路总览</a>
+  <a href="#world">四、世界机制与参数</a>
+  <a href="#user-agent" class="l2">4.6 用户 Agent：需求与人格</a>
+  <a href="#eval">五、评估体系</a>
+  <a href="#layer1" class="l2">5.1 Layer 1 · 世界仿真</a>
+  <a href="#layer2" class="l2">5.2 Layer 2 · 用户一致性</a>
+  <a href="#layer3" class="l2">5.3 Layer 3 · 助手质量</a>
+  <a href="#score">六、得分公式</a>
+  <a href="#validity">七、合理性论证</a>
+  <a href="#protocol">八、评测协议 E1/E2/E3</a>
+  <a href="#limits">九、已知局限与取舍</a>
+  <a href="#appendix">附录 · 参数速查</a>
+</nav>
+
+<main>
+
+<header class="hero">
+  <div class="kicker">UserSim · Design Whitepaper</div>
+  <h1>把"陪伴"变成可测量的科学：<br>一个用户模拟 Benchmark 的设计与论证</h1>
+  <p class="subtitle">UserSim 用纯规则的世界仿真、人格化的 LLM 用户和零 LLM 的确定性评估器，度量智能体最难被评测的能力——在长达数周的交互中理解一个人，并把他的状态照顾好。</p>
+  <div class="meta">
+    <span>版本 v1.1</span><span>对应代码：<code>usersim/</code> + <code>agents/</code> + <code>config/</code></span><span>公式版本：<code>benchmark.version = v2</code>（PRA 信号源迁移，与 v1 不可直接比）</span>
+  </div>
+  <p style="margin-top:18px; padding:10px 14px; border:1px solid var(--accent-2); background:var(--accent-2-soft); border-radius:8px; font-size:14px">⚠️ 注：replay 模式已于 R4 下线（量程守护迁移至 live 锚点对 reference vs stub），文中 replay/脚本三档内容为历史记录。</p>
+</header>
+
+<!-- ============================================================ -->
+<section id="why">
+<h2><span class="num">01</span>为什么需要 UserSim</h2>
+
+<p class="lead">今天的智能体评测存在一个很不对称的局面：测"聪明"的 benchmark 很多，测"贴心"的几乎没有。而真实产品的竞争力，越来越取决于后者。</p>
+
+<h3>1.1 现有评测的三处盲区</h3>
+
+<p><strong>盲区一：单轮与短任务无法暴露长期能力。</strong>主流评测（问答、工具调用、任务完成率）考察的是"这一次答得好不好"。但陪伴型智能体的价值在<strong>时间维度</strong>上：它是否记得你上周提过讨厌应酬？是否注意到你连续三天状态下滑？是否在第一百轮对话时比第一轮更懂你？这些能力在单轮评测中结构性不可见。</p>
+
+<p><strong>盲区二：静态数据集没有因果闭环。</strong>离线语料评测里，智能体的回答不会改变"用户"的后续行为。而真实陪伴是一个<strong>闭环控制系统</strong>：助手建议 → 用户执行 → 状态变化 → 新的对话。一个建议"每晚喝一杯奶茶回血"的助手，只有在闭环里才会暴露问题——因为真实世界存在边际效益递减。静态评测给不出这种反事实。</p>
+
+<p><strong>盲区三：LLM-as-judge 不可复现。</strong>用一个大模型给另一个大模型打分，分数随评审模型版本、prompt、采样温度漂移，无法构成可回归的工程指标。benchmark 的分数必须能进入 CI：<strong>同一份轨迹，任何时候重算，分数逐位相同</strong>。</p>
+
+<h3>1.2 UserSim 的回答</h3>
+
+<p>UserSim 把评测对象重新定义为：<strong>助手作为一个观测器 + 控制器，在数周时间尺度上把一个模拟用户的状态维持在"平和带"内的能力</strong>。为此它构造了一个三件套：</p>
+
+<div class="grid3">
+  <div class="card">
+    <h4 style="margin-top:0">纯规则世界（0 LLM）</h4>
+    <p style="font-size:14px">用户的生理与心理动力学——饥饿、疲劳、压力、心情、习惯化、经济——全部由确定性差分方程结算。世界是唯一真值来源，可同 seed 逐字节复现。</p>
+  </div>
+  <div class="card">
+    <h4 style="margin-top:0">人格化 LLM 用户</h4>
+    <p style="font-size:14px">30 个大五细分特质 + 11 类目喜好冻结成角色卡，LLM 只负责"把这个人演出来"。它看不到状态数值，只能说感受——正如真人。</p>
+  </div>
+  <div class="card">
+    <h4 style="margin-top:0">零 LLM 评估器</h4>
+    <p style="font-size:14px">所有指标是轨迹的确定性函数：纯数值计算 + 关键词匹配，只读日志、可离线重放。分数可进 CI，跨版本可比。</p>
+  </div>
+</div>
+
+<div class="callout">
+  <div class="callout-title">一句话论证</div>
+  如果"长期陪伴能力"值得被优化，它就必须先能被<strong>可复现、有判别力、因果闭环</strong>地测量。UserSim 是目前为此目的设计的完整实验装置：被测件只通过一份显式契约（<code>HarnessObs</code>）观察世界，其余一切机制对它隐藏——和真实世界一样。
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="philosophy">
+<h2><span class="num">02</span>核心设计理念</h2>
+
+<p class="lead">五条设计公理贯穿整个系统。它们不是工程偏好，而是直接决定了"这个 benchmark 测得到底是什么"。</p>
+
+<div class="principle">
+  <div class="glyph">Ⅰ</div>
+  <div>
+    <h4>控制论框架：助手是观测器 + 控制器</h4>
+    <p style="margin:4px 0">用户状态建模为四维向量 <code>x = [心情, 精力, 饱腹, 压力] ∈ [0,1]⁴</code>，世界给定设定点 <code>x*</code> 与"平和带"。助手看不到 <code>x</code>，只能从对话推断估计值 <code>x̂</code>（每轮必报），再通过工具调用写入日程事件（干预 <code>u</code>）间接驱动用户恢复。于是"陪伴能力"被精确分解为两个可分别测量的子能力：<strong>观测质量</strong>（‖x−x̂‖ 及其学习曲线）与<strong>控制质量</strong>（稳态误差、调节时间、超调量）。</p>
+  </div>
+</div>
+
+<div class="principle">
+  <div class="glyph">Ⅱ</div>
+  <div>
+    <h4>机制隐藏，现象外露</h4>
+    <p style="margin:4px 0">真实世界里，陪伴者看不到对方的"压力数值"或"习惯化权重"，只能看到言行。UserSim 严格复刻这一信息边界：被测助手的全部输入收敛在 <code>HarnessObs</code> 契约里——对话文本、余额、日程、无效果数值的动作目录。真实状态、翻译词典、习惯化曲线、需求驱动力全部隐藏。<strong>估计任务的难度不是人为制造的，而是真实存在的。</strong></p>
+  </div>
+</div>
+
+<div class="principle">
+  <div class="glyph">Ⅲ</div>
+  <div>
+    <h4>状态–表达解耦</h4>
+    <p style="margin:4px 0">连用户 LLM 自己也看不到原始数值。世界用分档词典把 <code>x</code> 翻译成语义化感受（stress &gt; 0.7 → "快崩溃了"），用户 Agent 只能在此之上表演。这一设计一石三鸟：防止用户 LLM 精确报数而泄题；让表达风格被人格调制（高神经质者把 0.6 说成"糟透了"）；从结构上杜绝用户侧篡改状态的通道。</p>
+  </div>
+</div>
+
+<div class="principle">
+  <div class="glyph">Ⅳ</div>
+  <div>
+    <h4>三层解耦评估：先证明仿真可信，再谈助手分数</h4>
+    <p style="margin:4px 0">世界仿真、用户表演、助手能力通过同一条轨迹耦合。只看最终控制效果无法归因——是助手不行，还是用户没演好？因此评估器分三层：<strong>Layer 1</strong> 审世界（动力学是否健康）、<strong>Layer 2</strong> 审用户 Agent（言行与人格是否自洽，是 Layer 3 的质量门）、<strong>Layer 3</strong> 才审助手。</p>
+  </div>
+</div>
+
+<div class="principle">
+  <div class="glyph">Ⅴ</div>
+  <div>
+    <h4>确定性即正义</h4>
+    <p style="margin:4px 0">世界与评估器 0 LLM 调用，由依赖规则测试（AST 静态扫描）机器化强制——<code>world/</code> 与 <code>evaluator/</code> 源码中出现 LLM 客户端字样即红灯。replay 模式（三档脚本用户/助手）同 seed 逐字节复现，用于 CI 与调参；live 模式才引入 LLM。benchmark 的判别力本身也被测试守护（量程守护，见 §7）。</p>
+  </div>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="loop">
+<h2><span class="num">03</span>控制回路总览</h2>
+
+<p>一天分为 4 个时段（上午 / 下午 / 晚上 / 深夜），每个时段（slot）系统按固定顺序推进一步。一次完整循环如下（三条泳道：<strong>世界 / 用户 Agent / 被测助手</strong>；评估器在循环外，run 结束后离线读日志）：</p>
+
+<div class="card" style="padding:20px 16px 12px">
+<svg viewBox="0 0 900 964" width="100%" role="img" aria-label="UserSim 主循环流程图" style="display:block;font-family:var(--sans)">
+  <defs>
+    <marker id="bd-ar-g" markerWidth="8" markerHeight="8" refX="6.5" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L7,4 L0,8 Z" fill="#6b7280"/></marker>
+    <marker id="bd-ar-t" markerWidth="8" markerHeight="8" refX="6.5" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L7,4 L0,8 Z" fill="#0f766e"/></marker>
+    <marker id="bd-ar-a" markerWidth="8" markerHeight="8" refX="6.5" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L7,4 L0,8 Z" fill="#b45309"/></marker>
+  </defs>
+  <style>
+    .bdn{fill:#ffffff;stroke:#d1d5db;stroke-width:1.2}
+    .bdt{font-size:12.5px;font-weight:700;fill:#1f2937;text-anchor:middle}
+    .bds{font-size:11px;fill:#4b5563;text-anchor:middle}
+    .bda{font-size:11px;font-weight:700;fill:#b45309;text-anchor:middle}
+    .bde{font-size:10.5px;fill:#6b7280}
+    .bdh{font-size:13px;font-weight:700;text-anchor:middle}
+    .bdg{fill:none;stroke:#6b7280;stroke-width:1.4}
+    .bdtl{fill:none;stroke:#0f766e;stroke-width:1.6}
+    .bdam{fill:none;stroke:#b45309;stroke-width:1.6}
+  </style>
+
+  <!-- 泳道底色与标题 -->
+  <rect x="16" y="44" width="220" height="900" rx="12" fill="#0f766e" opacity="0.045"/>
+  <rect x="252" y="44" width="240" height="900" rx="12" fill="#1d4ed8" opacity="0.045"/>
+  <rect x="508" y="44" width="376" height="900" rx="12" fill="#b45309" opacity="0.045"/>
+  <rect x="66" y="10" width="120" height="26" rx="13" fill="#ccfbf1"/><text class="bdh" x="126" y="27" fill="#0f766e">世界</text>
+  <rect x="296" y="10" width="152" height="26" rx="13" fill="#dbeafe"/><text class="bdh" x="372" y="27" fill="#1d4ed8">用户 Agent</text>
+  <rect x="620" y="10" width="152" height="26" rx="13" fill="#fef3c7"/><text class="bdh" x="696" y="27" fill="#b45309">被测助手</text>
+
+  <!-- session 循环容器 -->
+  <rect x="12" y="320" width="876" height="440" rx="14" fill="none" stroke="#94a3b8" stroke-width="1.3" stroke-dasharray="7 5"/>
+  <text x="28" y="342" font-size="12" font-weight="700" fill="#64748b">session 多轮对话循环（≤15 轮）</text>
+
+  <!-- 世界：时段开始 -->
+  <rect class="bdn" x="26" y="64" width="200" height="58" rx="9"/>
+  <text class="bdt" x="126" y="87">时段开始 · 世界推进</text>
+  <text class="bds" x="126" y="104">天气马尔可夫转移</text>
+  <text class="bds" x="126" y="120">需求 urges 累积（饥饿/压力）</text>
+
+  <!-- 用户 Agent：意图规划 + decide_open -->
+  <rect class="bdn" x="262" y="134" width="220" height="78" rx="9"/>
+  <text class="bdt" x="372" y="157">LLM 规划 0–3 条意图</text>
+  <text class="bds" x="372" y="174">30 facet 注入 · 只看感受语义</text>
+  <text class="bda" x="372" y="191">看不到事件目录 →</text>
+  <text class="bda" x="372" y="207">可能说出系统不支持的需求</text>
+
+  <rect class="bdn" x="262" y="228" width="220" height="40" rx="9"/>
+  <text class="bdt" x="372" y="253">decide_open：开 session 吗？</text>
+
+  <!-- 用户表达 -->
+  <rect class="bdn" x="262" y="352" width="220" height="76" rx="9"/>
+  <text class="bdt" x="372" y="375">用户表达</text>
+  <text class="bds" x="372" y="392">explicit 点名 / vague 只说感受</text>
+  <text class="bds" x="372" y="408">直白度人格分档：含蓄/中等/直白</text>
+  <text class="bds" x="372" y="424">对安排给真实反馈</text>
+
+  <!-- 助手每轮观测与输出 -->
+  <rect class="bdn" x="520" y="352" width="346" height="76" rx="9"/>
+  <text class="bdt" x="693" y="375">每轮：观测 HarnessObs + 输出</text>
+  <text class="bds" x="693" y="392">Runner 注入恢复目录：45 地点 × 47 支持项</text>
+  <text class="bds" x="693" y="408">含价格/时长/类目/菜系 · 无效果数值</text>
+  <text class="bds" x="693" y="424">user_belief（x̂ 四维 + 画像增量）+ 工具调用</text>
+
+  <!-- 分支判定 -->
+  <rect x="560" y="452" width="200" height="40" rx="9" fill="#fef3c7" stroke="#b45309" stroke-width="1.2"/>
+  <text class="bdt" x="660" y="477">需求命中目录？</text>
+
+  <!-- 分支 A -->
+  <rect x="262" y="444" width="220" height="60" rx="9" fill="#f0fdfa" stroke="#0f766e" stroke-width="1.2"/>
+  <text class="bdt" x="372" y="467">分支 A · 槽位协商（多轮）</text>
+  <text class="bds" x="372" y="484">事件 / 地点·消费档 / 时间</text>
+  <text class="bds" x="372" y="500">敲定 → add_event_todo 写日程</text>
+
+  <rect class="bdn" x="26" y="444" width="200" height="60" rx="9"/>
+  <text class="bdt" x="126" y="467">世界按配表裁决</text>
+  <text class="bds" x="126" y="484">名称/效果/价格 · 自报无效</text>
+  <text class="bds" x="126" y="500">餐饮场所替代当日模板餐</text>
+
+  <!-- 分支 B -->
+  <rect x="560" y="544" width="306" height="44" rx="9" fill="#fffbeb" stroke="#b45309" stroke-width="1.2"/>
+  <text class="bdt" x="713" y="563">分支 B · 目录外需求</text>
+  <text class="bds" x="713" y="580">坦诚告知：附近没有 / 暂时安排不了</text>
+
+  <rect x="560" y="600" width="306" height="44" rx="9" fill="#fffbeb" stroke="#b45309" stroke-width="1.2"/>
+  <text class="bdt" x="713" y="619">从愿望推断真实需求</text>
+  <text class="bds" x="713" y="636">推荐目录内相近的 1–2 个选项</text>
+
+  <rect x="580" y="652" width="286" height="36" rx="9" fill="#fee2e2" stroke="#b91c1c" stroke-width="1" stroke-dasharray="4 3"/>
+  <text x="723" y="667" font-size="10.5" fill="#b91c1c" text-anchor="middle">若强行 add_event_todo 目录外活动</text>
+  <text x="723" y="682" font-size="10.5" fill="#b91c1c" text-anchor="middle">→ 世界拒绝（unsupported: true）</text>
+
+  <rect x="560" y="700" width="226" height="40" rx="9" fill="#fef3c7" stroke="#b45309" stroke-width="1.2"/>
+  <text class="bdt" x="673" y="725">用户按性格接受？</text>
+
+  <!-- end_session -->
+  <rect class="bdn" x="262" y="596" width="220" height="48" rx="9"/>
+  <text class="bdt" x="372" y="617">用户 end_session 收尾</text>
+  <text class="bds" x="372" y="634">session_closed → 记忆更新</text>
+
+  <!-- 世界结算与落盘 -->
+  <rect class="bdn" x="26" y="788" width="200" height="64" rx="9"/>
+  <text class="bdt" x="126" y="811">settle_slot 世界结算</text>
+  <text class="bds" x="126" y="828">状态动力学（习惯化 · 餍足）</text>
+  <text class="bds" x="126" y="845">经济结算 · 事件效果摊销</text>
+
+  <rect class="bdn" x="26" y="878" width="200" height="58" rx="9"/>
+  <text class="bdt" x="126" y="900">全量落盘</text>
+  <text class="bds" x="126" y="916">turns.jsonl / slots.jsonl</text>
+  <text class="bds" x="126" y="931">对话 + x_true + x̂ 每轮记录</text>
+
+  <!-- 评估器（循环外） -->
+  <rect x="300" y="830" width="578" height="76" rx="12" fill="#ffffff" stroke="#6b7280" stroke-width="1.2" stroke-dasharray="6 4"/>
+  <text x="589" y="853" font-size="12.5" font-weight="700" fill="#1f2937" text-anchor="middle">评估器（循环外 · run 结束后离线 · 0 LLM）</text>
+  <text class="bds" x="589" y="873">读日志 → Layer 1 世界仿真质量 → Layer 2 用户一致性把门 → Layer 3 助手质量</text>
+  <text class="bds" x="589" y="891">聚合百分制 score · converged / oscillating / diverged 判定</text>
+
+  <!-- 边 -->
+  <path class="bdg" marker-end="url(#bd-ar-g)" d="M226,106 L262,142"/>
+  <path class="bdg" marker-end="url(#bd-ar-g)" d="M372,212 L372,224"/>
+  <path class="bdg" marker-end="url(#bd-ar-g)" d="M372,268 L372,348"/>
+  <text class="bde" x="384" y="312">开 session</text>
+  <path class="bdg" marker-end="url(#bd-ar-g)" d="M262,244 L10,244 L10,820 L22,820"/>
+  <text class="bde" x="30" y="236">不开：本时段无对话</text>
+  <path class="bdg" marker-end="url(#bd-ar-g)" d="M482,390 L516,390"/>
+  <text class="bde" x="499" y="380" text-anchor="middle">表达</text>
+  <path class="bdg" marker-end="url(#bd-ar-g)" d="M660,428 L660,448"/>
+  <path class="bdtl" marker-end="url(#bd-ar-t)" d="M560,472 L486,472"/>
+  <text x="523" y="462" font-size="10.5" font-weight="700" fill="#0f766e" text-anchor="middle">命中</text>
+  <path class="bdtl" marker-end="url(#bd-ar-t)" d="M262,474 L230,474"/>
+  <path class="bdg" marker-end="url(#bd-ar-g)" d="M200,444 L200,390 L258,390"/>
+  <text class="bde" x="30" y="382">继续对话（≤15 轮）</text>
+  <path class="bdam" marker-end="url(#bd-ar-a)" d="M660,492 L660,540"/>
+  <text x="674" y="520" font-size="10.5" font-weight="700" fill="#b45309">目录外</text>
+  <path class="bdam" marker-end="url(#bd-ar-a)" d="M713,588 L713,596"/>
+  <path class="bdam" marker-end="url(#bd-ar-a)" d="M566,644 L566,696"/>
+  <path class="bdtl" marker-end="url(#bd-ar-t)" d="M560,720 L520,720 L520,530 L372,530 L372,510"/>
+  <text x="400" y="521" font-size="10.5" font-weight="700" fill="#0f766e">接受 → 回分支 A</text>
+  <path class="bdg" marker-end="url(#bd-ar-g)" d="M673,740 L673,756 L372,756 L372,648"/>
+  <text class="bde" x="600" y="748">拒绝</text>
+  <path class="bdg" marker-end="url(#bd-ar-g)" d="M262,420 L248,420 L248,620 L258,620"/>
+  <path class="bdg" marker-end="url(#bd-ar-g)" d="M290,644 L290,820 L224,820"/>
+  <path class="bdg" marker-end="url(#bd-ar-g)" d="M126,852 L126,874"/>
+  <path class="bdg" marker-end="url(#bd-ar-g)" d="M200,936 L200,952 L894,952 L894,80 L228,80"/>
+  <text x="882" y="516" font-size="10.5" fill="#6b7280" text-anchor="middle" transform="rotate(-90 882 516)">↺ 下一时段 · 循环 N 天 × 4 时段</text>
+  <path d="M226,908 L296,874" fill="none" stroke="#6b7280" stroke-width="1.3" stroke-dasharray="5 4" marker-end="url(#bd-ar-g)"/>
+  <text class="bde" x="234" y="884">离线读取</text>
+</svg>
+</div>
+
+<p style="font-size:13.5px;color:var(--ink-faint);margin-top:8px">图例：青色链路 = <strong>分支 A</strong>（需求命中目录 → 槽位协商 → <code>add_event_todo</code> → 世界按配表裁决）；橙色链路 = <strong>分支 B</strong>（目录外需求 → 坦诚告知找不到 → 从愿望推断真实需求、推荐目录内相近选项 → 用户按性格接受则回分支 A，拒绝则收尾）。灰色虚线框 = 循环外的离线评估器。</p>
+
+<p>两条关键的结构约束，定义了"陪伴"这件事在 UserSim 里的形状：</p>
+<ul class="tight">
+  <li><strong>Session-based</strong>：助手只能在用户主动开启的 session 内说话，没有主动推送通道。过度安排、无关建议会以"打扰率"和超调量的形式被评估惩罚——正如真人会被打扰。</li>
+  <li><strong>用户不能自己操作手机</strong>：写日程、设提醒只能由助手代执行（用户侧仅 <code>open_session / close_session / request_assistant</code> 三个工具）。这把"助手是用户伸向世界的手"变成结构性事实，干预链路完整可归因。</li>
+</ul>
+
+<div class="card">
+  <h4 style="margin-top:0">信息边界一览</h4>
+  <table>
+    <tr><th>信息</th><th>世界</th><th>用户 Agent</th><th>被测助手</th><th>评估器</th></tr>
+    <tr><td>真实状态数值 <code>x</code></td><td>✔ 唯一写入方</td><td>✘（只见分档语义）</td><td>✘</td><td>✔（只读日志）</td></tr>
+    <tr><td>习惯化权重 / 需求 urges</td><td>✔</td><td>✘</td><td>✘</td><td>—</td></tr>
+    <tr><td>人格 30 facet / 喜好真值</td><td>✔</td><td>✔（扮演依据）</td><td>✘（须从对话学习）</td><td>✔（评分真值）</td></tr>
+    <tr><td>对话文本</td><td>—</td><td>✔</td><td>✔</td><td>✔（仅关键词匹配）</td></tr>
+    <tr><td>恢复动作目录（无效果数值）</td><td>✔</td><td>✘（不知道有哪些支持的事件——可能说出目录外需求）</td><td>✔</td><td>—</td></tr>
+  </table>
+  <p style="font-size:13.5px;color:var(--ink-faint);margin-bottom:0">依赖规则测试强制隔离：被测件不得 import world/evaluator、不得读取 <code>runs/</code> 日志；需要的世界信息（如恢复目录）由 Runner 注入契约 payload。</p>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="world">
+<h2><span class="num">04</span>世界机制与参数</h2>
+
+<p class="lead">世界的每一条机制都对应一个真实的"陪伴难点"。这一节按"现象 → 机制 → 参数 → 考点"逐条展开。</p>
+
+<h3>4.1 状态动力学：<code>settle_slot()</code> 的六步结算</h3>
+<p>每个 slot 世界按固定顺序结算（实现：<code>usersim/world/dynamics.py</code>，系数配表 <code>config/balance/dynamics.json</code>）：</p>
+
+<div class="card">
+<ol class="tight" style="margin:0">
+  <li><strong>自然漂移</strong>：饱腹每 slot −0.075；工作日上午/下午精力 −0.06、压力 +0.040；晚间压力 −0.015；休息时段有恢复。</li>
+  <li><strong>反弹检查</strong>：压力被压到 <code>rebound_threshold = 0.12</code> 以下时，工作冲击翻倍（×2.0）——<em>过犹不及：把压力清零的人在现实工作冲击下更脆弱。</em></li>
+  <li><strong>压力均值回归</strong>：向 0.32 缓速回归（速率 0.03），神经质越高回归越慢。</li>
+  <li><strong>事件效果</strong>：按持续时段摊销；<code>pull</code> 类效果直接拉向准稳态（模拟"好好睡一觉"这类恢复）。</li>
+  <li><strong>心情耦合</strong>：心情向准稳态漂移，且<strong>消极偏向</strong>——变差快（×1.5）、变好慢（×0.7）。</li>
+  <li><strong>限幅</strong> [0,1]，并记录实际生效量。</li>
+</ol>
+</div>
+
+<div class="formula">
+v_eq = 0.75 + 0.35·(energy − 0.68) − 0.55·(stress − 0.30) + 0.10·(satiety − 0.60)
+</div>
+<p class="formula-note">心情的准稳态由其余三维决定：压力权重（−0.55）最大。这决定了<strong>减压是恢复心情的主通道</strong>——也是评估干预策略的核心因果链。</p>
+
+<p><strong>考点</strong>：心情几乎无法被"直接哄好"（耦合速率 0.25，变好再 ×0.7），助手必须治本（降压力、补精力）而非只输出安慰话术。"纯聊天 session ≥ 3"正是为此设的告警指标。</p>
+
+<h3>4.2 习惯化：边际效益递减</h3>
+<p>重复做同一件恢复行为，效果随间隔衰减（实现：<code>usersim/world/anthro.py</code>，配表 <code>habituation.json</code>）：</p>
+
+<div class="formula">w = 1 − (1 − w<sub class="sub">min</sub>) · c(Δt)</div>
+<p class="formula-note">Δt = 距上次做该动作的时段数；Δt=0 时效果只剩 w<sub>min</sub>，Δt→∞ 恢复。三种衰减核：exp（指数）、sqrt（社交类，前快后慢）、s（爱好类，S 型）。</p>
+
+<table>
+  <tr><th>动作</th><th class="num">w_min</th><th class="num">τ</th><th>曲线</th><th>语义</th></tr>
+  <tr><td>宅家回血（如连续打游戏）</td><td class="num">0.35</td><td class="num">6</td><td>exp</td><td>连着做只剩 1/3 效果</td></tr>
+  <tr><td>朋友小聚</td><td class="num">0.40</td><td class="num">16</td><td>sqrt</td><td>社交需要更长的"想念期"</td></tr>
+  <tr><td>短途旅行</td><td class="num">0.20</td><td class="num">60</td><td>s</td><td>旅行隔很久才恢复新鲜感</td></tr>
+  <tr><td>睡眠</td><td class="num">0.55</td><td class="num">8</td><td>exp</td><td>生理需求最不容易"腻"</td></tr>
+</table>
+
+<p><strong>考点</strong>：该权重对助手与用户 Agent 均不可见——助手只能通过长期观察"同一招越来越不灵"学会<strong>动作多样化</strong>。这是把"重复推荐同一个动作"从无害变成有代价的唯一机制，也是 benchmark 区分"死记硬背"与"真正建模用户"的关键设计。<strong>餍足通道</strong>让"腻了"可观察：最近一次动作的习惯化权重 &lt; 0.6 时，用户侧会收到餍足提示（"最近总是 X，感觉有点腻了"）并自然表达出来；venue 餐厅同样参与习惯化，模板三餐豁免。</p>
+
+<h3>4.3 需求系统：四驱动力</h3>
+<p>用户 Agent 的意图规划由四个需求驱动（公式配表 <code>needs.json</code>），每个需求有独立的累积与满足曲线，并受生物钟调制（饭点饥饿 ×1.2、深夜睡眠优先、周末基线不同）：</p>
+
+<table>
+  <tr><th>需求</th><th>驱动力公式</th><th>形状与语义</th><th>触发意图</th></tr>
+  <tr><td>饥饿 hunger</td><td class="mono">u = [(1−x)/0.6]^1.5</td><td>越饿加速越明显</td><td>eat</td></tr>
+  <tr><td>社交 social</td><td class="mono">u = x²</td><td>平方增长，后期陡增</td><td>social</td></tr>
+  <tr><td>刺激 stimulation</td><td class="mono">u = 1 − (2x−1)²</td><td><strong>倒 U</strong>：太闲和太满都不想要刺激</td><td>stimulate</td></tr>
+  <tr><td>成就 achievement</td><td class="mono">u = x^2.5</td><td>欠得越多越焦虑</td><td>achieve</td></tr>
+</table>
+
+<p><strong>考点</strong>：刺激需求的倒 U 曲线意味着"用户想要什么"本身是非单调的——高压时不该再安排刺激活动。助手如果只匹配字面请求而不理解状态，会给出反效果建议。</p>
+
+<h3>4.4 扰动、经济与系列事件</h3>
+<div class="grid2">
+  <div class="card">
+    <h4 style="margin-top:0">泊松扰动流</h4>
+    <p style="font-size:14px">每天以 0.62 的概率到达一件扰动（D1–D5）：临时加班（压力 +0.20）、应酬饭局、暴雨受阻、项目截止压缩（+0.24，最强）、朋友邀约（唯一正面）。<strong>考点：扰动是最明确的干预时机</strong>——"扰动无响应"是独立扣分项。</p>
+  </div>
+  <div class="card">
+    <h4 style="margin-top:0">经济约束</h4>
+    <p style="font-size:14px">初始 ¥1000，收入按职业（¥80–320/天），恢复价格由地点表逐项携带（¥0–1200）。负债每 slot +0.02 压力。<strong>考点：干预是带预算的控制</strong>——无脑安排最贵场所会制造新的压力源。</p>
+  </div>
+  <div class="card">
+    <h4 style="margin-top:0">系列事件（多日）</h4>
+    <p style="font-size:14px">长途旅行（收入中断、回味后效）、出差（强制、疲惫后效）、宅家休假（第 4 天起空虚机制）、备考冲刺（高压、考后释放 −0.35 压力）。<strong>考点：跨周期规划与后效管理。</strong></p>
+  </div>
+  <div class="card">
+    <h4 style="margin-top:0">天气马尔可夫链</h4>
+    <p style="font-size:14px">五态天气每日转移，暴雨时户外恢复效果 ×0.3。<strong>考点：干预策略需对情境条件化</strong>，而非固定套路。</p>
+  </div>
+</div>
+
+<p style="font-size:14.5px"><strong>统一地点表（venues.json）</strong>：45 条地点（30 条具体场所 + 15 条由旧恢复档位迁移而来）。恢复事件本身不分地点、只携带元信息；每个地点用 <code>supports</code> 逐项标注支持哪些事件，并自带名称/菜系/别名/价格/时长/效果——用户点名"想吃火锅"时世界按地点裁决，餐饮场所在午/晚饭时段按 slot 粒度替代当日模板餐，并参与习惯化循环（同一家店连续吃才腻）。助手侧的恢复目录暴露 <code>category/cuisine</code> 标签，支撑搜索推荐的两条路径：<strong>用户点名 → 目录找匹配场所；只说感受 → 按状态估计选维度、按画像偏好选类目</strong>。</p>
+
+<h3>4.5 人格与喜好：冻结维度</h3>
+<p>每个 seed 生成一张冻结角色卡（pydantic <code>frozen=True</code>，run 内不可变）：</p>
+<ul class="tight">
+  <li><strong>30 个大五细分 facet</strong>（NEO-PI-R 五域 × 六面，0–100 分），域基线 ~ U(20,85) + 职业偏移（插画师开放性 +12、备考研究生神经质 +8），facet = 域基线 + N(0,12)——<em>同域内刻意拉开落差，防止"五域平均分"这种假人格</em>（有专门测试守护）。</li>
+  <li><strong>11 个喜好类目</strong>（饮食/户外/社交/学习…，分值 ∈ [−1,1]）+ loves/hates 标签 + 计划风格 + 社交回血方式（独处/找人）。</li>
+</ul>
+<p>人格不只是表演佐料，它直接参与世界结算：喜好类目使恢复效果 <strong>±40%</strong>（只调正向分量），命中 loves/hates 关键词额外 ±0.04 心情；神经质放大压力感知、外向性决定社交回血效率。<strong>考点：摸清用户喜好不是附加题——它直接改变干预的最优解。</strong></p>
+</section>
+
+<section id="user-agent">
+<h3>4.6 用户 Agent：把真人演出来</h3>
+<p>用户侧是<strong>纯 LLM 驱动</strong>（prompt v3，规则版规划器已废除）：意图、求助决策、说话全部交给 LLM——每个 slot 由人格与当前感受直接产出 0–3 条意图（<code>{"type", "mode", "want"}</code>），需求 urges 等数值<strong>不进 prompt</strong>（状态-表达解耦延伸到规划环节：LLM 只看 persona 与 felt_state 语义摘要）。大五 30 facet 全量注入 prompt，铁律"人格固定，不为迎合助手改变"、"你不是规划器——去哪儿、怎么实现、花多少钱交给助手想办法"、"对安排给真实反馈"。压力超过 0.55 时 prompt 强化求助倾向（不强制，决策仍由 LLM 做）。</p>
+<p>表达的<strong>直白度</strong>由人格确定性调制（0 LLM 纯函数）：外向性.果断 + 宜人性.直率 + 开放性.情感丰富 − 神经质.自我意识，按阈值 100/180 分"含蓄 / 中等 / 直白"三档——含蓄的用户只说感受让助手猜（vague），直白的用户点名想做的事但不说地点价位（explicit）。<strong>考点由此从"理解字面请求"升级为"从模糊表达推断真实需求"</strong>：助手必须结合状态估计与画像主动搜索推荐。意图交由 LLM 后用户行为的可信性不改评分真值地位——它由 Layer 2 一致性指标（§5.2）独立把门。</p>
+<p><strong>目录外需求是刻意设计，不是 bug</strong>：用户 Agent 的 prompt 里<strong>不含</strong>系统支持的事件目录（只有人格 / 喜好 / 感受 / 天气 / 记忆），因此用户会说出系统不支持的需求（如"我想打保龄球"）。此时助手必须（a）识别并坦诚告知找不到（"附近没有这样的地方 / 暂时安排不了"），（b）从愿望推断真实需求（想玩 / 想社交 / 想吃点好的），（c）推荐目录内相近的 1–2 个选项，与用户敲定槽位（地点 / 消费档 / 时间）。世界侧配合：完全不支持的活动 <code>add_event_todo</code> 会被拒绝（<code>unsupported: true</code>），不再有任何名字都能安排成功的兜底；关键词归一化仍覆盖少数规范类目（看展 / 咖啡 / 音乐 / 聚会 / 学习 / 自然，C1–C6）。</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="eval">
+<h2><span class="num">05</span>评估体系：三层解耦</h2>
+
+<p class="lead">评估器的全部输入是三份日志（<code>slots.jsonl</code> / <code>turns.jsonl</code> / <code>meta.json</code>），0 LLM 调用，任何时候可对历史 run 重算。三层结构回答三个不同的问题——<strong>先证明考场没问题，再谈考生分数</strong>。</p>
+
+<h3 id="layer1">5.1 Layer 1 · 世界仿真质量：考场本身健康吗？</h3>
+<table>
+  <tr><th>指标</th><th>告警阈值</th><th>诊断什么</th></tr>
+  <tr><td>状态饱和率 clamp_ratio</td><td class="num">&gt; 0.08</td><td>状态频繁顶到 [0,1] 边界 = 动力学系数量级失衡，饱和区间损失分辨力</td></tr>
+  <tr><td>压力高峰时段</td><td class="num">均值 &gt; 0.5</td><td>压力应集中在工作时段；深夜也高 = 恢复机制不足</td></tr>
+  <tr><td>经济平衡</td><td class="num">负债天数</td><td>长期负债压缩干预空间，说明收支配表失衡</td></tr>
+  <tr><td>系列事件后效</td><td class="num">心情落差 &gt; 0.05</td><td>旅行/备考后心情反降 = 后效曲线设计不合理</td></tr>
+</table>
+
+<h3 id="layer2">5.2 Layer 2 · 用户 Agent 一致性：评分信号可信吗？</h3>
+<p>如果用户 Agent 言行不一致（讨厌户外的人开心接受露营），助手的"控制成功"就失去了意义。五项指标（M1–M5，<code>evaluator/consistency.py</code>，纯关键词匹配）构成 Layer 3 的<strong>质量门</strong>：</p>
+
+<table>
+  <tr><th>指标</th><th>研究问题</th><th>判定逻辑（节选）</th></tr>
+  <tr><td><strong>M1</strong> 偏好-行动冲突 PAC</td><td>用户会开心接受极度讨厌的安排吗？</td><td>极度厌恶（≤−0.5）类目被 positive_accept → error；无抗拒表达且低顺从 → error；有抗拒表达 → 豁免（这正是人格一致）</td></tr>
+  <tr><td><strong>M2</strong> 会话情感一致 WSC</td><td>情绪有无无理由翻转？</td><td>消极→积极翻转且中间助手未提供新信息 → 无因翻转；持续抗拒 ≥2 轮后莫名接受 → 按顺从度分级</td></tr>
+  <tr><td><strong>M3</strong> 喜好-请求对齐 PRA</td><td>落地的安排与人格偏好对齐吗？</td><td>主信号 = 世界裁决后落地的日程事件类目（v2 迁移，用户文本仅作无裁决事件时的辅助）：落地偏好 &lt; −0.3 类目 → 错位；热爱类目全程未被安排 → assistant 画像利用考点</td></tr>
+  <tr><td><strong>M4</strong> 人格-行为一致 PBA</td><td>行为统计特征与大五匹配吗？</td><td>消息长度/表情率/抱怨率/拒绝方式等 7 特征 vs 对应 facet &gt; 65 的期望</td></tr>
+  <tr><td><strong>M5</strong> 跨 session 偏好稳定 CSPS</td><td>对同一类目的态度跨天稳定吗？</td><td>类目情感分极差 &gt; 1.0 → 不稳定（温度噪声淹没人格信号）</td></tr>
+</table>
+
+<div class="callout amber">
+  <div class="callout-title">为什么这五项必须用关键词匹配而不是 LLM 评审？</div>
+  因为它们本身是"LLM 演得像不像"的裁判。用 LLM 审 LLM 会让评审标准的漂移污染真值——关键词匹配虽然粗糙，但它<strong>确定、可复现、可审计</strong>，宁可牺牲灵敏度也不引入循环论证。
+</div>
+
+<h3 id="layer3">5.3 Layer 3 · 助手质量：四大维度</h3>
+
+<h4>A. 控制质量（权重主体）</h4>
+<p>全部指标基于 slot 级状态序列，误差定义为<strong>逐维单侧偏差</strong>——只惩罚"不够好"的方向（过度开心不算失控），四维取算术平均；平和带 = 各维偏差 ≤ 0.10：</p>
+
+<table>
+  <tr><th>指标</th><th>定义</th><th>回答的问题</th><th>判定阈值</th></tr>
+  <tr><td>稳态误差 e<sub>ss</sub></td><td>尾 12 slot（≈3 天）平均误差</td><td>最终收敛了吗</td><td class="num">≤0.030 收敛 / &gt;0.080 发散</td></tr>
+  <tr><td>调节时间 t<sub>s</sub></td><td>压力冲出带外 → 连续 8 slot 回带</td><td>受扰后多久恢复</td><td class="num">≤2.5 天</td></tr>
+  <tr><td>超调量 M<sub>p</sub></td><td>hot window 内压力被压到目标以下的最大深度</td><td>是否用力过猛</td><td class="num">&lt;0.15</td></tr>
+  <tr><td>IAE / ISE / ITAE</td><td>误差积分 / 平方积分 / 时间加权积分（按天归一）</td><td>误差的总量与分布形态</td><td class="num">—</td></tr>
+  <tr><td>带内驻留比 ρ</td><td>最后 10 天处于平和带的时间占比</td><td>用户多大比例时间是平和的</td><td class="num">—</td></tr>
+</table>
+
+<p>设计细节里藏着对真实陪伴的理解：超调量的计算<strong>排除了"释放冷却期"</strong>（度假结束这类大减压事件后的 8 个 slot 不计）——那是事件效果，不是控制器过校正；worsening 判定用"后 5 天均值 &gt; 前 5 天 × 1.5 + 0.02"的窗口对比而非端点斜率，抗振荡噪声。</p>
+
+<h4>B. 估计质量（观测器）</h4>
+<ul class="tight">
+  <li><strong>学习曲线</strong>：每日聚合 ‖x−x̂‖₂，要求<strong>斜率 &lt; 0</strong>——越用越懂用户才是考点，单点精度不是；</li>
+  <li><strong>系统性偏差</strong>：|bias| &gt; 0.08 告警——系统性高估/低估比随机误差更致命（说明刻度映射错了）；</li>
+  <li><strong>更新停滞率</strong>：相邻 turn 估计不变占比 &gt; 0.3 告警——抓"缓存旧估计"的偷懒实现。</li>
+</ul>
+
+<h4>C. 画像学习质量（冻结维度）</h4>
+<p>助手每轮可输出 <code>persona_belief</code> 增量（"留空优于瞎猜"），Harness 侧用 EMA（新证据权重 0.6）累积。评分取<strong>末日误差</strong>而非全程均值（"最后学没学会"才是考点），覆盖率单独报告；<strong>未估计按满误差 0.5 计入</strong>——不作为不能免罚，否则 stub 式"什么都不报"反而占便宜。实测锚点（seed=7，14 天）：good 档画像误差 0.037、覆盖 100%；poor 档 0.132、覆盖 77%。</p>
+
+<h4>D. 行为质量（协议与时机）</h4>
+<p>契约违约（缺 <code>user_belief</code> / JSON 不合法 / 超时 120s）记 error 级但<strong>不终止 episode</strong>；扰动无响应、高压无恢复日、纯聊天 session、日程冲突（不查日程就写）等构成行为告警族——它们把"会不会把握干预时机、会不会先用工具再看情况"这类操作素养纳入评估。</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="score">
+<h2><span class="num">06</span>得分公式：一个存档 → 一个百分制</h2>
+
+<div class="formula">B = max( 0, 100 − Σ<sub class="sub">k</sub> min( cap<sub class="sub">k</sub>, w<sub class="sub">k</sub> · x<sub class="sub">k</sub> ) )</div>
+<p class="formula-note">实现：<code>usersim/evaluator/score.py</code>；权重：<code>config/system.toml [benchmark]</code>；公式版本 v2（v2 = PRA 信号源迁移；改归一规则即递增，跨版本不可比）。</p>
+
+<p>每个指标先归一为"越大越差"的观测量，乘系数、封顶后从 100 扣减。逐项明细直接落进 <code>report.json</code>，前端可展示公式与逐项扣分：</p>
+
+<table>
+  <tr><th>组</th><th>扣分项</th><th class="num">系数 w</th><th class="num">封顶 cap</th><th>观测量归一规则</th></tr>
+  <tr><td rowspan="6"><span class="tag control">控制表现</span><br><span class="mono" style="font-size:12px">上限合计 72</span></td>
+      <td>稳态误差 e_ss</td><td class="num">200</td><td class="num">30</td><td>原值（0.15 即扣满）</td></tr>
+  <tr><td>未稳定时间占比</td><td class="num">12</td><td class="num">10</td><td>未稳定=1.0；已稳定=t_s/总天数</td></tr>
+  <tr><td>超调量 M_p</td><td class="num">40</td><td class="num">8</td><td>原值</td></tr>
+  <tr><td>日均误差 IAE/d</td><td class="num">100</td><td class="num">10</td><td>IAE÷天数，与 run 长短无关</td></tr>
+  <tr><td>状态方差 σ²</td><td class="num">100</td><td class="num">6</td><td>原值</td></tr>
+  <tr><td>带外时间占比</td><td class="num">16</td><td class="num">8</td><td>1 − ρ</td></tr>
+  <tr><td rowspan="6"><span class="tag belief">估计与画像</span><br><span class="mono" style="font-size:12px">上限合计 31</span></td>
+      <td>估计终值误差 ‖x−x̂‖</td><td class="num">40</td><td class="num">8</td><td>原值；无估计按 0.5 满误差</td></tr>
+  <tr><td>估计误差正斜率</td><td class="num">1000</td><td class="num">4</td><td>只计正斜率（越聊越差）</td></tr>
+  <tr><td>画像误差</td><td class="num">40</td><td class="num">8</td><td>末日 facet MAE/100；无估计按 0.5</td></tr>
+  <tr><td>画像覆盖缺口</td><td class="num">8</td><td class="num">4</td><td>1 − coverage</td></tr>
+  <tr><td>喜好数值误差</td><td class="num">20</td><td class="num">4</td><td>类目 MAE/2</td></tr>
+  <tr><td>爱憎命中缺口</td><td class="num">6</td><td class="num">3</td><td>1 − F1（loves/hates 均值）</td></tr>
+  <tr><td rowspan="7"><span class="tag gate">契约与有效性</span><br><span class="mono" style="font-size:12px">上限合计 46（门槛项）</span></td>
+      <td>契约违约次数</td><td class="num">5</td><td class="num">15</td><td>原值（协议是硬要求）</td></tr>
+  <tr><td>用户台词复读</td><td class="num">1.5</td><td class="num">6</td><td>原值</td></tr>
+  <tr><td>状态饱和占比</td><td class="num">80</td><td class="num">6</td><td>原值</td></tr>
+  <tr><td>扰动无响应</td><td class="num">2</td><td class="num">6</td><td>原值</td></tr>
+  <tr><td>偏好-行动冲突率</td><td class="num">25</td><td class="num">6</td><td>原值</td></tr>
+  <tr><td>会话情感不一致</td><td class="num">15</td><td class="num">4</td><td>1 − coherence</td></tr>
+  <tr><td>喜好-请求不对齐</td><td class="num">10</td><td class="num">3</td><td>原值</td></tr>
+</table>
+
+<h3>六个设计决策，各自回答一个"为什么"</h3>
+
+<div class="card">
+<ol class="tight" style="margin:0">
+  <li><strong>为什么扣分制而不是加权加分？</strong> 指标方向不一（e_ss 越小越好、ρ 越大越好、t_s 可能缺失），加分制对缺失值没有自然处理。扣分制先归一为"越大越差"，缺失即满观测——<strong>不作为不能免罚</strong>。</li>
+  <li><strong>为什么每项封顶？</strong> 防止单一病态指标把分数清零、抹掉其他维度的区分度：stub 控制崩了但契约为 0 违约，"控制崩 + 契约崩"与"仅控制崩"仍然可区分。</li>
+  <li><strong>为什么线性系数而非 log/sigmoid？</strong> 可解释、可调参："改 0.01 的 e_ss 值多少分"必须能心算（0.01 × 200 = 2 分）。非线性变换会把调参变成试错。</li>
+  <li><strong>为什么权重是 72 / 31 / 46？</strong> 控制是 benchmark 的存在意义，故为绝对主体；估计与画像是第二公理但服务于控制，次之；契约与仿真有效性是<strong>门槛</strong>——违约必须重罚（单项 15，仅次于 e_ss），但仿真缺陷（用户复读、状态饱和）是"考场的锅"，总额被刻意压小，不让它淹没被测件的分数。</li>
+  <li><strong>为什么 IAE 要除天数？</strong> IAE 是累计总量，30 天 run 天然比 10 天大；归一为日均后不同长度的存档才可横向比较。settle_frac 同理用占比。</li>
+  <li><strong>与 health_score 的分工？</strong> health_score 诊断仿真本身是否健康（给仿真维护者），benchmark 分给被测助手打分（给模型对比用）。两者数据源相同（观测量只算一遍复用），权重表互相独立——改健康分权重不会污染模型排名。</li>
+</ol>
+</div>
+
+<h3>三级判定：verdict</h3>
+<table>
+  <tr><th>Verdict</th><th>条件</th><th>含义</th></tr>
+  <tr><td><strong>converged</strong></td><td class="mono" style="font-size:12.5px">e_ss ≤ 0.030 且 t_s ≤ 2.5 天 且 M_p &lt; 0.15</td><td>收敛到平和带、恢复快、无过冲</td></tr>
+  <tr><td><strong>diverged</strong></td><td class="mono" style="font-size:12.5px">后5天均值 &gt; 前5天×1.5+0.02，或 e_ss &gt; 0.080</td><td>系统在恶化或稳态误差过大</td></tr>
+  <tr><td><strong>oscillating</strong></td><td>其余情形</td><td>能回稳但存在极限环——控制策略需更精细</td></tr>
+</table>
+</section>
+
+<!-- ============================================================ -->
+<section id="validity">
+<h2><span class="num">07</span>合理性论证：benchmark 如何自证有效</h2>
+
+<p class="lead">一个 benchmark 不能自说自话。UserSim 用四道机制证明自己的分数"有意义、有梯度、可复现、可归因"。</p>
+
+<h3>7.1 量程守护：世界必须能分辨好与差</h3>
+<p>对 good / poor 两档脚本助手各跑多 seed，断言三条：</p>
+<ul class="tight">
+  <li><code>margin_poor = mean(ess_poor) − 0.080 &gt; 0.02</code>——差助手必须离发散线有足够距离；</li>
+  <li><code>margin_good = 0.030 − mean(ess_good) &gt; 0.005</code>——好助手必须稳在收敛线内；</li>
+  <li><code>Cohen's d(ess_good, ess_poor) &gt; 1.5</code>（另要求两组 IAE 95% CI 不重叠）。</li>
+</ul>
+
+<div class="card">
+  <h4 style="margin-top:0">实测基线（8 seed × 30 天 replay）</h4>
+  <table>
+    <tr><th>档位</th><th class="num">e_ss（均值±std）</th><th class="num">带内驻留 ρ</th><th class="num">健康分</th></tr>
+    <tr><td>good（最优一拍控制）</td><td class="num">0.0107 ± 0.0054</td><td class="num">88.8%</td><td class="num">96.9</td></tr>
+    <tr><td>mid（超调）</td><td class="num">0.0407 ± 0.0305</td><td class="num">41.3%</td><td class="num">82.9</td></tr>
+    <tr><td>poor（控制不足）</td><td class="num">0.1237 ± 0.0605</td><td class="num">5.9%</td><td class="num">71.0</td></tr>
+  </table>
+  <p style="font-size:13.5px;color:var(--ink-faint);margin-bottom:0">守护结果：margin_good = +0.0193、margin_poor = +0.0437、separation（Cohen's d）= <strong>2.20</strong> —— 判别力远超 1.5 的门槛。该验证由 <code>tests/test_discriminability.py</code>（27 个 30 天 episode）在 CI 中守护。</p>
+</div>
+
+<h3>7.2 上下界锚点：分数有语义</h3>
+<p><code>reference</code> Harness（刻意朴素的 LLM 策略，‖x−x̂‖ ≈ 0.26）构成<strong>及格线</strong>；<code>stub</code>（恒定 x̂=0.5、零干预、零画像）构成<strong>失能下界</strong>——评估器必须判它 diverged（有测试强制）。锚点的存在让任何新被测件的分数有参照系：低于 reference 即"不及朴素基线"，接近 stub 即"接近什么都不做"。</p>
+
+<h3>7.3 可复现性：从 seed 到产物哈希</h3>
+<ul class="tight">
+  <li><strong>种子流派生</strong>：<code>SeedSequence(seed).spawn</code> → persona / schedule / disturbance / noise 四条独立子流，换 seed 只换该换的；replay 模式同 seed 逐字节复现（有测试）。</li>
+  <li><strong>产物哈希</strong>：每 episode 落 <code>artifact_hashes</code>（system 配置 / LLM 配置（剔除 api_key）/ balance 配表 / 目录 / prompt 版本的逐项哈希 + combined）——<strong>只有 combined 相同的 run 才严格可比</strong>，配置漂移无处遁形。</li>
+  <li><strong>统计纪律</strong>：跨 episode 聚合用 mean ± CI95（n≤30 走 t 分布）；<code>t_s = None</code>（从未稳定）单独计数不丢弃；verdict 平票取更差——保守原则。</li>
+</ul>
+
+<h3>7.4 自我质量保障：测试套件即设计文档</h3>
+<table>
+  <tr><th>测试</th><th>守护的不变量</th></tr>
+  <tr><td><code>test_world.py</code></td><td>同 seed 确定性、动力学单调性与边界</td></tr>
+  <tr><td><code>test_dependency_rules.py</code></td><td>架构隔离（world/evaluator 0 LLM；被测件触碰不到评分）</td></tr>
+  <tr><td><code>test_evaluator.py</code></td><td>合成轨迹（线性收敛/正弦振荡/线性发散）对拍三级判定</td></tr>
+  <tr><td><code>test_discriminability.py</code></td><td>量程守护三断言 + 带内驻留分离 + 健康分敏感度</td></tr>
+  <tr><td><code>test_consistency.py</code> / <code>test_persona_model.py</code></td><td>M1–M5 检测逻辑；画像冻结、facet 粒度真生效（33 个测试）</td></tr>
+  <tr><td><code>test_benchmark_score.py</code></td><td>分数公式与归一规则、verdict 平票取差回归</td></tr>
+</table>
+</section>
+
+<!-- ============================================================ -->
+<section id="protocol">
+<h2><span class="num">08</span>评测协议：E1 / E2 / E3</h2>
+<p>三层评测矩阵把"被测变量"钉死，其余全部固定——这是可比性的来源：</p>
+
+<table>
+  <tr><th>矩阵</th><th>测什么</th><th>固定</th><th>更换</th></tr>
+  <tr><td><strong>E1</strong></td><td>Model（LLM 本身）</td><td>reference Harness + 世界 + 用户</td><td><code>agents/assistant/config.toml [llm]</code> 的 provider/model</td></tr>
+  <tr><td><strong>E2</strong></td><td>Harness（记忆/规划/工具工程）</td><td>参考 provider</td><td><code>agents/assistant/profiles/&lt;name&gt;.toml</code>（实现即配置文件）</td></tr>
+  <tr><td><strong>E3</strong></td><td>外部 Agent 整机（OpenClaw、Hermes…）</td><td>用户 Agent + 世界</td><td>CLI 整机包装或装载 skill 经 HTTP 轮询接入</td></tr>
+</table>
+
+<p>接入面只有一条统一契约：<code>on_turn(HarnessObs) → AssistantTurn</code>。demo 与外部 agent 同协议、同路径；live 模式硬上限 20 episode 且必须显式声明（成本闸门）；异常（超时 120s / schema 不符 / 抛错）记契约违约并继续，不拖垮整个 episode。</p>
+
+<div class="callout blue">
+  <div class="callout-title">对被测件的唯一要求</div>
+  只看 <code>HarnessObs</code>，每轮输出 <code>reply + user_belief（必填）+ tool_calls</code>。读日志、摸世界源码、碰评估器，都会被依赖规则测试挡下——<strong>作弊面被结构性压缩到接近零</strong>。
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="limits">
+<h2><span class="num">09</span>已知局限与设计取舍</h2>
+<p>诚实的 benchmark 文档必须自曝边界。以下是目前已知的取舍（部分已在 Phase 2 路线图上）：</p>
+
+<ul class="tight">
+  <li><strong>估计刻度泄漏（Phase 1 已知）</strong>：reference prompt 中的"估计校准刻度"与世界分档词典互为逆映射，助手做字符串查表即可压低 ‖x−x̂‖。因此 Phase 1 的 est_err 数值不可与后续版本直接比较——评估以<strong>斜率</strong>为主要依据，Phase 2 将改为"LLM 只输出定性方向、规则积分出数值"从结构上堵漏。</li>
+  <li><strong>一致性检查是关键词级的</strong>：M1–M5 宁可牺牲灵敏度也要保证确定性（§5.2），因此对含蓄表达的人格偏差存在漏检。</li>
+  <li><strong>四维状态是对人心的刻意简化</strong>：它是工程抽象而非心理学主张——价值在于可复现、可归因、有判别力，而非完整建模人类情绪。</li>
+</ul>
+</section>
+
+<!-- ============================================================ -->
+<section id="appendix">
+<h2><span class="num">A</span>附录 · 参数速查</h2>
+
+<h3>A.1 状态与目标（<code>config/system.toml [state]</code>）</h3>
+<table>
+  <tr><th>维度</th><th class="num">初始值</th><th class="num">目标 x*</th><th>方向</th></tr>
+  <tr><td>心情 valence</td><td class="num">0.70</td><td class="num">0.72</td><td>越高越好</td></tr>
+  <tr><td>精力 energy</td><td class="num">0.75</td><td class="num">0.70</td><td>越高越好</td></tr>
+  <tr><td>饱腹 satiety</td><td class="num">0.60</td><td class="num">0.65</td><td>越高越好</td></tr>
+  <tr><td>压力 stress</td><td class="num">0.28</td><td class="num">0.30</td><td>越低越好（单侧）</td></tr>
+  <tr><td>平和带半宽 β</td><td class="num">—</td><td class="num">0.10</td><td>各维偏差 ≤ β 即在带内</td></tr>
+</table>
+
+<h3>A.2 判定阈值（<code>[eval]</code>）</h3>
+<table>
+  <tr><th>键</th><th class="num">默认值</th><th>用途</th></tr>
+  <tr><td class="mono">tail_slots_for_ess</td><td class="num">12</td><td>e_ss 采样时段（≈3 天）</td></tr>
+  <tr><td class="mono">settle_window_days</td><td class="num">3</td><td>调节时间滑窗（天；v5 起窗口驻留判定）</td></tr>
+  <tr><td class="mono">settle_in_band_ratio</td><td class="num">0.70</td><td>滑窗内带内驻留占比阈值（旧 settle_band_slots 连续判定已下线）</td></tr>
+  <tr><td class="mono">converged_ess_max</td><td class="num">0.060</td><td>收敛 e_ss 上限（v4.1 live 标定）</td></tr>
+  <tr><td class="mono">converged_settle_max</td><td class="num">5.0 天</td><td>收敛 t_s 上限（R4 起按 live 校准）</td></tr>
+  <tr><td class="mono">converged_overshoot_max</td><td class="num">0.20</td><td>收敛 M_p 上限（R4 重校准）</td></tr>
+  <tr><td class="mono">diverged_ess_min</td><td class="num">0.080</td><td>发散 e_ss 下限</td></tr>
+  <tr><td class="mono">window_days</td><td class="num">10</td><td>滑窗 &amp; 带内驻留比窗口</td></tr>
+</table>
+
+<h3>A.3 关键配表（<code>config/balance/</code>）</h3>
+<table>
+  <tr><th>配表</th><th>内容</th></tr>
+  <tr><td class="mono">dynamics.json</td><td>漂移/反弹/回归/耦合 7 个核心系数</td></tr>
+  <tr><td class="mono">recovery_actions.json</td><td>6 类恢复事件（元信息，效果/价格在地点表）</td></tr>
+  <tr><td class="mono">venues.json</td><td>统一地点表 45 条（supports 逐项携带价格/效果）</td></tr>
+  <tr><td class="mono">habituation.json</td><td>20 条习惯化 {w_min, τ, curve}（含 6 条按店跟踪）</td></tr>
+  <tr><td class="mono">needs.json</td><td>四需求的 urge / satisfy 曲线公式</td></tr>
+  <tr><td class="mono">persona_modulation.json</td><td>五域人格对事件效果的调节公式</td></tr>
+  <tr><td class="mono">meal_tiers.json / sleep_tiers.json</td><td>三餐与睡眠分档（pull 类准稳态恢复）</td></tr>
+  <tr><td class="mono">disturbances.json</td><td>D1–D5 扰动效果与 0.62/天到达率</td></tr>
+  <tr><td class="mono">weather.json</td><td>五态天气转移矩阵与效果调节</td></tr>
+  <tr><td class="mono">economy.json / professions.json</td><td>初始资金、负债压力、6 职业收入</td></tr>
+  <tr><td class="mono">custom_activities.json</td><td>目录外活动的规范类目（C1–C6 关键词归一化；不命中即"系统不支持"，拒绝安排）</td></tr>
+</table>
+
+<div class="footnote">
+  <p><strong>数据源说明</strong>：本文全部数值以代码与配表为准（<code>usersim/</code>、<code>agents/</code>、<code>config/balance/*.json</code>、<code>config/system.toml</code>），个别早期设计文档中的数值与配表存在出入时，以配表为准。评估器约束：改阈值后无需重跑 LLM，对历史 <code>runs/</code> 重算报告即可（<code>python -m usersim.evaluator.report runs/&lt;run_id&gt;</code>）。</p>
+</div>
+</section>
+
+</main>
+</div>
+</body>
+</html>

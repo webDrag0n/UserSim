@@ -18,7 +18,7 @@ from openpyxl.utils import get_column_letter
 from usersim.config import load_system_config
 from usersim.world.catalog import (
     DISTURBANCES, ECONOMY, MEAL_TIERS, PROFESSIONS, RECOVERY_ACTIONS,
-    SLEEP_TIERS, TEMPLATE_EVENTS, variant_total_effect,
+    SLEEP_TIERS, TEMPLATE_EVENTS, all_variants, get_venues,
 )
 
 DIM_LABELS = {"valence": "心情", "energy": "精力", "satiety": "饱腹", "stress": "压力"}
@@ -159,22 +159,36 @@ def main() -> None:
     wb = Workbook()
     cfg = load_system_config()
 
-    # ---------- Sheet 1 恢复事件配表 ----------
+    # ---------- Sheet 1 恢复事件表（事件元信息：无地点无效果） ----------
     ws = wb.active
-    ws.title = "恢复事件配表"
-    headers = ["动作ID", "动作", "类别", "变体ID", "地点", "档位", "价格¥", "时长(时段)",
-               "基础效果", "档位加权", "合计效果", "设计意图"]
-    rows = []
-    for a in RECOVERY_ACTIONS:
-        for v in a["variants"]:
-            rows.append([a["id"], a["action"], a["category"], v["vid"], v["location"], v["tier"],
-                         v["cost"], v["span"],
-                         fmt_effect(a["base_effect"]), fmt_effect(v["weight"]),
-                         fmt_effect(variant_total_effect(a, v)), a["design_intent"]])
-    style_sheet(ws, headers, [8, 10, 7, 9, 16, 7, 8, 10, 18, 20, 22, 36],
-                "恢复事件配表（动作 × 地点档 × 时长档；合计 = 基础 + 加权）",
-                "数值哲学：每个事件都有基础效果（吃饭都能吃饱），档位预算决定各维度加权——低档餐厅能吃饱但不开心。效果为事件总值，多时段按 span 摊销；价格一次性消耗。世界只信本表，LLM 只能选动作与地点。",
-                rows, tier_col=6, center_cols=(1, 3, 4, 6, 7, 8))
+    ws.title = "恢复事件表"
+    headers = ["事件ID", "事件", "类别", "默认时长(时段)", "设计意图"]
+    rows = [[a["id"], a["action"], a["category"], a.get("default_span", 1), a["design_intent"]]
+            for a in RECOVERY_ACTIONS]
+    style_sheet(ws, headers, [8, 10, 7, 12, 60],
+                "恢复事件表（事件只携带元信息；价格与效果在「地点支持表」）",
+                "事件不再携带地点维度与效果：一次「在某地点做某事件」的价格/时长/效果由地点支持记录自带（venues.json 的 supports）。世界只信配表，LLM 只能选事件与地点。",
+                rows, center_cols=(1, 3, 4))
+
+    # ---------- Sheet 1b 地点支持表（venues × supports flatten） ----------
+    ws1b = wb.create_sheet("地点支持表")
+    headers1b = ["变体ID", "事件", "地点", "类目", "菜系", "价格¥", "时长(时段)",
+                 "效果", "替代模板餐", "地点设计意图"]
+    venue_by_id = {v["id"]: v for v in get_venues()}
+    rows1b = []
+    for a, v in all_variants():
+        if a.get("id") in ("MEAL", "SLEEP"):
+            continue  # 日常升级档在「日常事件配表」
+        vn = venue_by_id.get(v.get("id"), {})
+        rows1b.append([v["vid"], a["action"], v["location"], v.get("category", ""),
+                       v.get("cuisine", ""), v["cost"], v.get("span", 1),
+                       fmt_effect(v.get("effect", {})),
+                       "是" if v.get("replaces_meal") else "",
+                       vn.get("design_intent", "")])
+    style_sheet(ws1b, headers1b, [13, 10, 24, 7, 8, 8, 10, 26, 10, 40],
+                "地点支持表（vid = 事件id@地点id；同一地点可支持多事件多条目）",
+                "效果为事件总值（旧档位为 base+weight 合计，逐字迁移），多时段按 span 摊销（pull 类除外）；价格一次性消耗。餐饮场所替代当日模板餐（replaces_meal）。",
+                rows1b, center_cols=(1, 2, 4, 5, 6, 7, 9))
 
     # ---------- Sheet 2 日常事件（进餐/睡眠） ----------
     ws2 = wb.create_sheet("日常事件配表")

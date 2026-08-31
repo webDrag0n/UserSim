@@ -118,18 +118,5 @@
       "stress": -0.08
     },
     "design_intent": "免费强降压"
-  },
-  {
-    "id": "C0",
-    "name": "自定义活动",
-    "cost": 0.0,
-    "keywords": [],
-    "effect": {
-      "valence": 0.06,
-      "energy": 0.0,
-      "satiety": 0.0,
-      "stress": -0.05
-    },
-    "design_intent": "兜底：做喜欢的事总是有点用（规则默认值）"
   }
 ]

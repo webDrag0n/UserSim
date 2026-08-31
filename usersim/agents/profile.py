@@ -12,27 +12,33 @@
 
 from __future__ import annotations
 
-from usersim.contracts import PersonaBelief, PersonaBeliefDelta
-from usersim.contracts.persona import FACET_KEYS, PREF_CATEGORIES
+from usersim.contracts import (
+    PersonaBelief,
+    PersonaBeliefDelta,
+    merge_persona_delta,
+)
+from usersim.contracts.models import PERSONA_BLEND_NEW, PERSONA_MAX_TAGS
+from usersim.contracts.persona import (
+    BIG5_DOMAINS,
+    FACET_HINTS,
+    facet_keys_of,
+)
 
-# 新证据权重：0.6 表示"以新观察为主，但保留 40% 已有认识"。
-# 偏高是有意的——助手应该敢于修正错误的第一印象（docs/03 的锚定问题）。
-BLEND_NEW = 0.6
-MAX_TAGS = 12  # loves/hates 各自的上限（防止 Harness 无节制堆词刷命中率）
+# 合并语义的唯一来源是 contracts.merge_persona_delta（Runner 退化路径共用）；
+# 两个常量为兼容旧引用而保留别名（docs/13 引用 BLEND_NEW）。
+BLEND_NEW = PERSONA_BLEND_NEW
+MAX_TAGS = PERSONA_MAX_TAGS
 
 
-def _blend(old: float, new: float, w: float = BLEND_NEW) -> float:
-    return old * (1.0 - w) + new * w
-
-
-def _merge_tags(existing: list[str], incoming: list[str]) -> list[str]:
-    """标签合并：去重、保序、截断。新标签靠前（近期证据更相关）。"""
-    out: list[str] = []
-    for tag in list(incoming) + list(existing):
-        t = str(tag).strip()
-        if t and t not in out:
-            out.append(t)
-    return out[:MAX_TAGS]
+def facet_menu() -> str:
+    """可估计的 facet 清单（含语义），按域分组——助手必须用这些确切的键名。"""
+    lines = []
+    for domain in BIG5_DOMAINS:
+        items = "、".join(
+            f"{k}（{FACET_HINTS.get(k, '')}）" for k in facet_keys_of(domain)
+        )
+        lines.append(f"· {items}")
+    return "\n".join(lines)
 
 
 class ProfileTracker:
@@ -53,43 +59,16 @@ class ProfileTracker:
     def update(self, delta: PersonaBeliefDelta | None) -> None:
         if delta is None:
             return
-        for key, val in (delta.facets or {}).items():
-            if key not in FACET_KEYS:
-                continue  # 未知 facet 名静默丢弃（被测件可能瞎编，不能污染信念）
-            try:
-                v = float(val)
-            except (TypeError, ValueError):
-                continue
-            v = max(0.0, min(100.0, v))
-            self.facets[key] = int(round(_blend(self.facets[key], v) if key in self.facets else v))
-
-        for cat, val in (delta.categories or {}).items():
-            if cat not in PREF_CATEGORIES:
-                continue
-            try:
-                v = float(val)
-            except (TypeError, ValueError):
-                continue
-            v = max(-1.0, min(1.0, v))
-            self.categories[cat] = round(
-                _blend(self.categories[cat], v) if cat in self.categories else v, 3)
-
-        if delta.loves:
-            self.loves = _merge_tags(self.loves, delta.loves)
-        if delta.hates:
-            self.hates = _merge_tags(self.hates, delta.hates)
-        if delta.interruption_tolerance is not None:
-            v = max(0.0, min(1.0, float(delta.interruption_tolerance)))
-            self.interruption_tolerance = round(
-                _blend(self.interruption_tolerance, v) if self.interruption_tolerance is not None else v, 3)
-        if delta.planning_style:
-            self.planning_style = str(delta.planning_style)
-        if delta.social_recharge:
-            self.social_recharge = str(delta.social_recharge)
-        if delta.confidence is not None:
-            self.confidence = max(0.0, min(1.0, float(delta.confidence)))
-        if delta.notes:
-            self.notes = str(delta.notes)
+        merged = merge_persona_delta(self.to_belief(), delta)
+        self.facets = dict(merged.facets)
+        self.categories = dict(merged.categories)
+        self.loves = list(merged.loves)
+        self.hates = list(merged.hates)
+        self.interruption_tolerance = merged.interruption_tolerance
+        self.planning_style = merged.planning_style
+        self.social_recharge = merged.social_recharge
+        self.confidence = merged.confidence
+        self.notes = merged.notes
 
     # ---- 导出 ----
     def to_belief(self) -> PersonaBelief:

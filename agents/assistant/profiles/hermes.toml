@@ -1,0 +1,25 @@
+# 本机 Hermes agent 整机接入（E3：模型/记忆/工具习惯全部来自 CLI 自己）
+# type = cli → usersim/agents/cli_agent.py 的通用 CLI 驱动
+#
+# 会话模式 resume：首轮从输出抓 session id（注意 hermes 打在 stderr，需 --pass-session-id），
+# 续轮追加 resume_args。reasoning 必须 none：reasoning 框混在 stdout 正文里会污染 reply。
+type = "cli"
+prompt_version = "v3"       # CLI 整机接入：prompt 由 CLI 自己管；v3=每轮加发动态恢复目录（cli_agent v3）
+description = "本机 Hermes agent 整机接入（原生 session 记忆）"
+
+[cli]
+command = "hermes"          # PATH 内或绝对路径
+timeout_sec = 110           # 单轮上限；略低于 system.toml [agent_api] response_timeout_sec(120)
+argv = [
+  "chat", "-q", "{message}", "-Q",
+  "--pass-session-id", "--reasoning", "none",
+]
+
+[cli.session]
+mode = "resume"
+id_regex = '^session_id:\s*(\S+)\s*$'
+id_stream = "stderr"        # session id 所在流：stderr | stdout
+resume_args = ["--resume", "{session}"]
+
+[cli.output]
+format = "text"             # stdout 即回复正文（session 行在 stderr）

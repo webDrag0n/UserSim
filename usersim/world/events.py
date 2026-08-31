@@ -26,10 +26,11 @@ def build_template_schedule(days: int, slots_per_day: int, weekend_days: list[in
     语义说明：三餐为跨 3 时段的单事件——pull 效果在每个活跃时段各作用一次，
     与原"早餐/午餐/晚餐三个事件"逐时段作用完全等价；费用 30 一次性扣除（= 10×3）。
     """
-    from usersim.world.catalog import MEAL_TIERS, SLEEP_TIERS
+    from usersim.world.catalog import get_meal_tiers, get_sleep_tiers
 
-    default_meal = MEAL_TIERS[1]   # M1 日常家常（pull 在每时段各作用一次）
-    default_sleep = SLEEP_TIERS[1]  # S1 正常睡眠
+    # 经 getter 取档位：config/balance/*.json 覆盖才生效（直接 import 常量会绕过配表）
+    default_meal = get_meal_tiers()[1]   # M1 日常家常（pull 在每时段各作用一次）
+    default_sleep = get_sleep_tiers()[1]  # S1 正常睡眠
     events: list[Event] = []
     eid = 0
     for d in range(days):

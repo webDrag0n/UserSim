@@ -8,10 +8,11 @@ from __future__ import annotations
 from usersim.contracts import Event, EventContext, Persona, Series, SlotSettlement, StateVec, ToolResult
 from usersim.world import dynamics, events as ev
 from usersim.world.anthro import (
+    HABITUATION_DEFAULTS,
     Needs,
     hab_weight,
-    habit_key,
     habit_params,
+    habit_resolve,
     persona_modifiers,
     preference_modifiers,
     reversion_rate_mult,
@@ -61,10 +62,15 @@ class World:
         self._reminders: list[dict] = []
         self.series: list[Series] = []
         self._last_done: dict[str, int] = {}  # 习惯化：规范事件名 → 上次执行 t
+        self._last_variants: dict[str, list[str]] = {}  # 规范名 → 最近做过的具体变体（最多 3 个）
         self.needs = Needs()  # 需求层（饥饿/社交/刺激/成就）
         self._series_track: dict[str, dict] = {}  # 峰终定律跟踪
-        self._balance = load_overrides()  # Excel 数值覆盖（习惯化/需求/人格）
+        self._balance = load_overrides()  # Excel 数值覆盖（习惯化/需求/人格/动力学）
         self.overrides = self._balance  # 让 Needs.urges/satisfaction 读取覆盖
+        # 动力学参数：system.toml [dynamics] 为底，config/balance/dynamics.json 覆盖
+        # （Balance 编辑器改动力学生效；此前 dynamics.json 加载后无人消费 = 死配置）
+        from usersim.config import Namespace as _NS
+        self._dyn = _NS({**cfg.dynamics.to_dict(), **(self._balance.get("dynamics_params") or {})})
 
         # 天气系统
         self.weather: Weather = initial_weather(self.streams["weather"])
@@ -198,6 +204,14 @@ class World:
         elif gen.random() < probs.get("idle", 0.08) * (0.3 + 0.7 * self.needs.session_urge(self.overrides)):
             assist_prompt = "用户似乎有点空闲，可能想随便聊聊或办点杂事"
 
+        # ---- 餍足提示：最近一次执行的恢复动作习惯化权重仍过低 → "腻了" ----
+        satiation_note = None
+        if self._last_done:
+            last_name, last_t = max(self._last_done.items(), key=lambda kv: kv[1])
+            w_sat = hab_weight(self.t - last_t, *habit_params(last_name, self._balance))
+            if w_sat < 0.6:
+                satiation_note = f"最近总是{last_name}，感觉有点腻了"
+
         ctx = EventContext(
             t_logical=self.t,
             day=self.day,
@@ -207,11 +221,44 @@ class World:
             assist_prompt=assist_prompt,
             schedule_view=upcoming,
             weather=self.weather.value,  # 新增：当前天气
+            satiation_note=satiation_note,
+            utility_menu=self.utility_menu(),  # R7：各活动边际效用档位（用户感知通道）
         )
         return ctx
 
     def felt_state(self) -> str:
         return felt_state(self.x, self.streams["noise"])
+
+    # 边际效用语义档位（hab_weight → 用户可读标签），阈值即感受分档
+    _UTILITY_TIERS = (
+        (0.85, "还很新鲜"),
+        (0.60, "效果还在，但吸引力降了"),
+        (0.35, "做太多次，效果明显打折"),
+        (0.00, "已经腻了，基本没什么用"),
+    )
+    # "没试过"清单的候选来源：规范动作键（排除场所键与豁免类目/兜底）
+    _UTILITY_FRESH_EXCLUDE = ("自定义活动",)
+
+    def utility_menu(self) -> list[str]:
+        """各恢复活动当前对用户的吸引力（习惯化权重的语义档位，0-LLM 翻译）。
+
+        与效果裁决同一数据源（_last_done × habituation 配表、同一 hab_weight 公式）——
+        用户感知到的边际效用必须与世界实际施加的衰减一致（R7：重复安排应被嫌弃）。
+        """
+        done = []
+        for name, last_t in self._last_done.items():
+            w = hab_weight(self.t - last_t, *habit_params(name, self._balance))
+            tier = next(label for edge, label in self._UTILITY_TIERS if w >= edge)
+            variants = self._last_variants.get(name)
+            shown = f"{name}（最近做过：{'、'.join(variants)}）" if variants else name
+            done.append((w, shown, tier))
+        # 权重升序：最腻的在前，最需要拒绝的最显眼
+        lines = [f"{name}——{tier}" for _, name, tier in sorted(done)]
+        fresh = sorted(k for k in HABITUATION_DEFAULTS
+                       if k not in self._last_done and k not in self._UTILITY_FRESH_EXCLUDE)[:8]
+        if fresh:
+            lines.append("还没试过的：" + "、".join(fresh))
+        return lines
 
     # ---------------- 工具执行（助手侧工具的世界端实现） ----------------
     def view_event_todos(self) -> ToolResult:
@@ -231,12 +278,15 @@ class World:
         location: str | None = None,
     ) -> ToolResult:
         """新增日程事件。数值裁决规则：配表命中 → 效果/价格/时长以配表为准；
-        未命中 → 使用调用方提供的 effect（限幅 ±0.35，免费）。金钱不足则拒绝。"""
+        未命中 → 按关键词归一化到规范类目（C1~C6，世界裁定数值，自报效果无效）；
+        仍不命中 → 系统不支持该活动，拒绝安排（助手应坦诚告知并推荐目录内替代）。
+        金钱不足同样拒绝。"""
         found = None
         if variant_id:
             found = find_variant(variant_id)
         if found is None:
             found = find_variant(name, location)
+        replaces_meal = False
         if found is not None:
             action, variant = found
             variant_loc = variant.get("location") or variant.get("name", "")
@@ -246,12 +296,19 @@ class World:
             span_slots = int(variant.get("span", 1))
             goal = goal or f"{action['action']}（{variant_loc}）"
             location = location or variant_loc
+            # 餐饮场所（venue 带 replaces_meal 标记）替代当日模板餐
+            replaces_meal = bool(variant.get("replaces_meal"))
         else:
-            # 目录外自定义活动：按关键词归一化到规范类目（C1~C6），
-            # 名称/效果/价格统一由世界裁定；LLM 原称保留在 note，自报效果无效
+            # 目录外自由命名：按关键词归一化到规范类目（C1~C6）；
+            # 关键词也不命中 = 系统不支持的活动（如"打保龄球"）→ 拒绝，
+            # 不给兜底效果——世界只安排配表覆盖的事，用户可能想要不存在的东西
             from usersim.world.catalog import match_custom_activity
             original = name
             cat = match_custom_activity(original)
+            if cat is None:
+                return ToolResult(name="add_event_todo", ok=False, payload={
+                    "error": f"附近没有提供「{original}」的场所，暂时无法安排这项活动",
+                    "unsupported": True})
             name = cat["name"]
             effect = dict(cat["effect"])
             cost = float(cat["cost"])
@@ -277,6 +334,7 @@ class World:
             effect=effect,
             cost=cost,
             caused_by_session_id=caused_by_session_id,
+            replaces_meal=replaces_meal,
         )
         result = ev.validate_new_event(event, self.events, self.total_slots)
         if result.ok:
@@ -305,6 +363,7 @@ class World:
             "reminders": self._reminders,
             "series": [s.model_dump() for s in self.series],
             "last_done": self._last_done,
+            "last_variants": self._last_variants,
             "needs": self.needs.to_dict(),
             "series_track": self._series_track,
             "weather": self.weather.value,  # 新增：天气状态
@@ -338,11 +397,14 @@ class World:
         w._reminders = snap.get("reminders", [])
         w.series = [Series(**s) for s in snap.get("series", [])]
         w._last_done = dict(snap.get("last_done", {}))
+        w._last_variants = {k: list(v) for k, v in snap.get("last_variants", {}).items()}
         from usersim.world.anthro import Needs as _Needs
         w.needs = _Needs(snap.get("needs"))
         w._series_track = dict(snap.get("series_track", {}))
         w._balance = load_overrides()
         w.overrides = w._balance
+        from usersim.config import Namespace as _NS
+        w._dyn = _NS({**cfg.dynamics.to_dict(), **(w._balance.get("dynamics_params") or {})})
         # 恢复天气状态（旧快照兼容：默认晴天）
         weather_str = snap.get("weather", "晴")
         w.weather = Weather(weather_str)
@@ -358,15 +420,25 @@ class World:
             if not e.effect or e.kind == "template":
                 out.append(e)
                 continue
-            # 习惯化：恢复/系列中的活动类（餐宿/工作/学习不腻）
+            # 习惯化：恢复/系列中的活动类（餐宿/工作/学习不腻）；
+            # "餐"只豁免系列餐食——恢复事件里的餐饮场所（venue 餐厅）重复吃会腻，照常习惯化
             w = 1.0
-            if e.kind in ("recovery", "series") and not any(k in e.name for k in self._HAB_EXEMPT):
-                key = habit_key(e.name)
+            if e.kind in ("recovery", "series") and not any(
+                k in e.name for k in self._HAB_EXEMPT if k != "餐" or e.kind == "series"
+            ):
+                key = habit_resolve(e.name, self._balance)
                 last = self._last_done.get(key)
                 dt = (self.t - last) if last is not None else 999
-                w = hab_weight(dt, *habit_params(e.name, self._balance))
+                w = hab_weight(dt, *habit_params(key, self._balance))
                 if e.start_slot == self.t:  # 长事件只在开始时记录执行
                     self._last_done[key] = self.t
+                    # 记录具体变体名（"好好休息 · 按摩 SPA" → "按摩 SPA"），
+                    # 供 utility_menu 展示——否则用户会把做过的变体当新花样
+                    variant_label = e.name.split(" · ", 1)[1].strip() if " · " in e.name else None
+                    if variant_label:
+                        seen = [v for v in self._last_variants.get(key, []) if v != variant_label]
+                        seen.append(variant_label)
+                        self._last_variants[key] = seen[-3:]
             sat = self.needs.satisfaction(e.name, self.overrides) if e.kind in ("recovery", "series") else 1.0
             eff: dict = {}
             for k, v in e.effect.items():
@@ -405,8 +477,18 @@ class World:
             if e.start_slot == self.t:
                 self.money += e.income - e.cost
 
+        # 餐饮场所替代模板餐：slot 1/2 有 replaces_meal 事件活跃时，当日"三餐"
+        # （跨 3 时段的单事件）在该 slot 的效果不生效——按 slot 粒度抑制，不删事件
+        effective = self._effective_events(active)
+        if self.slot in (1, 2) and any(e.replaces_meal for e in effective):
+            effective = [
+                e.model_copy(update={"effect": {}})
+                if e.kind == "template" and e.name == "三餐" else e
+                for e in effective
+            ]
+
         x_after, natural, event_fx, control_fx = dynamics.settle_slot(
-            self.x, self.day, self.slot, effective_workday, self._effective_events(active), self.cfg.dynamics,
+            self.x, self.day, self.slot, effective_workday, effective, self._dyn,
             reversion_mult=reversion_rate_mult(self.persona.big5, self.persona.facets),
         )
 

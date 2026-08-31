@@ -1,0 +1,5 @@
+# reference_nomem：reference v5 减去跨 session 记忆的消融对照
+# type = package → 导入同级实现包 agents/assistant/reference_nomem/，create(client) 构造
+type = "package"
+description = "消融对照：reference v5 同模型同 prompt，session 边界清空全部记忆（画像/日程/状态跟踪）"
+prompt_version = "v5.4-nomem"

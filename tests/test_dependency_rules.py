@@ -24,6 +24,75 @@ FORBIDDEN: dict[str, set[str]] = {
 # 组装点：允许 import 一切（唯一豁免，见 docs/00 第 3.1 节编排者模式）
 ASSEMBLY_POINTS = {"server", "bench", "runner", "cli"}
 
+# 单文件级边界（live 解耦的硬约束，docs/15-agent-api.md）：
+# runner 不再 import 任何 live agent 实现（接口框架层在 usersim/agents/，
+# 可插拔实现包在根目录 agents/；两者 runner 都不得触碰）；gateway 是纯中介，
+# 只依赖 contracts（+config 取 PROJECT_ROOT）。
+MODULE_FORBIDDEN: dict[str, set[str]] = {
+    "runner.py": {
+        "agents",
+        "usersim.agents",
+    },
+    "gateway.py": {
+        "agents",
+        "usersim.agents",
+        "usersim.world",
+        "usersim.evaluator",
+        "usersim.llm",
+        "usersim.server",
+        "usersim.bench",
+    },
+}
+
+
+def _imported_modules(py_file: Path) -> set[str]:
+    """提取该文件 import 的 usersim / agents 模块完整路径（含函数内的延迟 import）。"""
+    tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+    found: set[str] = set()
+    roots = ("usersim", "agents")
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            if any(node.module == r or node.module.startswith(r + ".") for r in roots):
+                found.add(node.module)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if any(alias.name == r or alias.name.startswith(r + ".") for r in roots):
+                    found.add(alias.name)
+    return found
+
+
+def test_module_level_boundaries() -> None:
+    violations: list[str] = []
+    for filename, forbidden in MODULE_FORBIDDEN.items():
+        py = PKG_ROOT / filename
+        if not py.exists():
+            violations.append(f"{filename} 不存在——若已改名请同步更新本规则")
+            continue
+        for mod in _imported_modules(py):
+            if any(mod == f or mod.startswith(f + ".") for f in forbidden):
+                violations.append(f"usersim/{filename} 违规 import {mod}")
+    assert not violations, "单文件依赖边界违规：\n" + "\n".join(violations)
+
+
+def test_demo_agents_boundaries() -> None:
+    """独立 agents/ 包（demo agent）只允许依赖 usersim 的公开协议与 SDK。
+
+    允许：usersim.contracts / llm / gateway / config（接入协议与客户端）；
+    禁止：world / evaluator / server / bench / runner（被测件不得触碰世界与评分）。
+    """
+    forbidden = ("usersim.world", "usersim.evaluator", "usersim.server",
+                 "usersim.bench", "usersim.runner")
+    root = PKG_ROOT.parent / "agents"
+    violations: list[str] = []
+    if root.is_dir():
+        for py in root.rglob("*.py"):
+            if "__pycache__" in py.parts:
+                continue
+            for mod in _imported_modules(py):
+                if any(mod == f or mod.startswith(f + ".") for f in forbidden):
+                    violations.append(f"{py.relative_to(PKG_ROOT.parent)} 违规 import {mod}")
+    assert not violations, "demo agent 依赖边界违规：\n" + "\n".join(violations)
+
 
 def _imported_subpackages(py_file: Path) -> set[str]:
     """提取该文件 import 的 usersim 子包名（含函数内的延迟 import）。"""

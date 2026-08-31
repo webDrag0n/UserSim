@@ -1,5 +1,7 @@
 # 05 · 数据契约（contracts）
 
+> ⚠️ 注：replay 模式已于 R4 下线（量程守护迁移至 live 锚点对 reference vs stub），文中 replay/脚本三档内容为历史记录。
+
 状态: 草稿
 
 > contracts 是唯一允许被所有包 import 的层。所有跨组件消息在此定义（pydantic v2），
@@ -58,6 +60,7 @@ class Event(BaseModel):
     effect: dict[str, float]      # Δx，结算时按 span 摊销
     progress: float = 0
     caused_by_session_id: str | None = None   # 因果链（哪次对话促成了它）
+    replaces_meal: bool = False   # 餐饮场所事件：活跃时段抑制当日模板"三餐"在同 slot 的效果
 ```
 
 ## 2. 世界 ↔ Runner 消息
@@ -70,6 +73,8 @@ class EventContext(BaseModel):        # world → Runner：一个时段的上下
     active_events: list[Event]
     assist_prompt: str | None         # 助手介入点提示
     schedule_view: list[Event]
+    satiation_note: str | None = None  # 餍足提示：最近重复的恢复动作已腻（习惯化权重 < 0.6）
+    utility_menu: list[str] = []       # 各恢复活动的边际效用档位（R7，语义行，无数值）
 
 class SlotSettlement(BaseModel):      # world → 日志：一次状态推进
     t_logical: int
@@ -91,6 +96,8 @@ class UserContext(BaseModel):         # Runner → user_agent（注意：无原�
     assist_prompt: str | None
     schedule_view: list[Event]
     dialogue_history: list["TurnRecord"]
+    satiation_note: str | None = None  # 餍足提示（world 裁决，供用户表达"吃腻了"）
+    utility_menu: list[str] = []       # 各活动边际效用档位（R7：规划权衡与拒绝重复安排的依据）
 
 class UserAction(BaseModel):          # user_agent → Runner
     say: str
@@ -131,6 +138,43 @@ class ToolResult(BaseModel):
     name: str
     ok: bool
     payload: dict = {}
+```
+
+## 3.5 Agent 接入 wire 协议（contracts/agent_api.py，docs/15-agent-api.md）
+
+benchmark ↔ agent（demo / 外部）的请求-响应信封与 typed payload。
+`Intent` 与意图常量（INTENT_EAT 等）的权威定义也在此（最初自规则版规划器上移；
+规划器废除后 wire 类型不变）。
+
+```python
+class AgentRequest(BaseModel):      # benchmark → agent（GET /api/agent/pending 响应体）
+    request_id: str
+    run_id: str
+    role: Literal["user", "assistant"]
+    type: str                       # plan_slot / decide_open / speak / session_closed / on_turn
+    payload: dict = {}              # typed payload 的 dict 形态
+    agent_state: dict = {}          # agent 侧不透明状态（续跑回灌）
+
+class AgentResponse(BaseModel):     # agent → benchmark（POST /api/agent/respond 请求体）
+    request_id: str
+    result: dict = {}               # typed result 的 dict 形态
+    agent_state: dict | None = None       # 非空覆盖 (run_id, role) 存档状态
+    persona_hat: PersonaBelief | None = None  # on_turn 专用：累积画像快照
+    error: str | None = None        # agent 侧失败（记违约/降级）
+
+# 用户侧 typed payload / result
+class PlanSlotRequest(BaseModel):   # urges/stress/energy/slot/day/money/event_library/
+    ...                             # assist_prompt/max_intents（数值只流向用户侧）
+                                    # context: UserContext | None（只加不删：LLM 规划的
+                                    # 语义输入——felt_state+人格+餍足提示，不含数值；
+                                    # 规则/混合实现可忽略）
+class PlanSlotResult(BaseModel):    # intents: list[Intent]
+class DecideOpenRequest(BaseModel): # {context: UserContext, intent: Intent}
+class DecideOpenResult(BaseModel):  # {open: bool, reason: str}
+class SpeakRequest(BaseModel):      # {context, history: list[DialogueTurn], intent_description}
+class SessionClosedNotice(BaseModel):  # {session_id, intent_type, turns, day}
+
+# speak 的 result 即 UserAction；on_turn 的 payload 即 HarnessObs、result 即 AssistantTurn
 ```
 
 ## 4. 日志模型（append-only JSONL，一行一条）
@@ -191,3 +235,10 @@ class RunMeta(BaseModel):
 
 - 全部模型落位于 `contracts/models.py`（pydantic v2）；golden JSON 往返测试在 `tests/test_contracts.py`。
 - `RunMeta` 增加了 `mode` 与 `assistant_quality` 字段（区分 replay/live）。
+- Agent 接入 wire 协议落位于 `contracts/agent_api.py`（§3.5）：信封 + 四类用户请求 +
+  on_turn；`meta.harness` 记录接入方式（`demo:reference` / `external`），
+  `run_state.json` 以 `agent_state` 分角色存档（旧 `harness_state` 读取兼容）。
+- prompt v3 配套新增（均为只加不删）：`PlanSlotRequest.context`（LLM 规划的语义输入，
+  runner 每 slot 组装；可空——demo 回退缓存再退化通用规划）；`EventContext`/`UserContext`
+  的 `satiation_note`（餍足通道）；`Event.replaces_meal`（餐饮场所抑制同 slot 模板餐效果）。
+  wire 协议的请求/响应结构不变——外部 agent 无需改代码。

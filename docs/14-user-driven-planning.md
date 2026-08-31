@@ -1,6 +1,12 @@
 # 14 · 用户主动规划系统（User-Driven Planning）
 
+> ⚠️ 注：replay 模式已于 R4 下线（量程守护迁移至 live 锚点对 reference vs stub），文中 replay/脚本三档内容为历史记录。
+
 状态: 设计中
+
+> **历史备注**：本文是"用户主动规划"特性的早期设计稿（其中的规则版 `UserPlanner`
+> 曾落地，现已在 prompt v3 中**废除**——意图改由用户侧 LLM 生成，数值不进 prompt，
+> 见 docs/02-user-agent.md"LLM 意图规划"）。文中规划器代码示例仅作历史参考。
 
 ## 0. 当前系统与目标设计的差异
 

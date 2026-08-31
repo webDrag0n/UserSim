@@ -1,0 +1,8 @@
+# reference_pro：与 reference 同实现同 prompt，助手模型换 deepseek-v4-pro（能力分级对照）
+type = "package"
+description = "模型分级对照：reference harness + deepseek-v4-pro（其余与 reference 完全一致）"
+prompt_version = "v5.4"
+impl = "reference"           # 实现包文件夹名（缺省 = 本 profile 名）
+
+[llm]                        # 覆盖 agents/assistant/config.toml 的模型绑定
+model = "deepseek-v4-pro"

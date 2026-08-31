@@ -1,0 +1,4 @@
+# 失能对照：恒定 x̂=0.5、零干预、零画像（benchmark 下界锚点，应被判 diverged）
+# type = package → 导入同级实现包 agents/assistant/stub/，create(client) 构造
+type = "package"
+description = "失能对照：恒定估计、从不安排（benchmark 下界）"

@@ -38,7 +38,7 @@ def _f(sev: str, cat: str, title: str, detail: str, suggestion: str = "", eviden
 # 依据见 docs/04-evaluator.md 第 7 节权重表。
 SCORE_DEFAULTS: dict[str, tuple[float, float]] = {
     "ess": (200.0, 40.0),            # 稳态误差：最重（控制目标本身）
-    "violations": (5.0, 15.0),       # 契约违约：协议遵守
+    "violations": (5.0, 15.0),       # 契约违约率（每百助手 turn；v4 起归一化）：协议遵守
     "xhat_bias": (80.0, 10.0),       # 估计系统性偏差：观测器质量
     "user_dup": (1.5, 10.0),         # 台词复读：拟人性
     "clamp_ratio": (80.0, 10.0),     # 状态饱和：世界分辨力
@@ -108,13 +108,24 @@ def compute_insights(
                            "在 Harness 的 user_model 中加入逐维校准项，或在提示中给出该维度的参考刻度。"))
 
     # ================= 契约与故障 =================
-    violations = [t for t in turns if t.contract_violation]
+    # v5：超时与协议违约分流——超时是 provider 延迟/容量问题（故障诊断），
+    # 只有 schema/JSON/crash 才算被测件的协议违约（进 benchmark）
+    timeouts = [t for t in turns
+                if t.contract_violation and t.contract_violation.startswith("assistant_timeout")]
+    violations = [t for t in turns
+                  if t.contract_violation
+                  and not t.contract_violation.startswith("assistant_timeout")]
     degraded = [t for t in turns if t.degraded]
     if violations:
         findings.append(_f("error", "契约", f"助手契约违约 ×{len(violations)}",
                            "AssistantTurn 未按契约输出（缺 user_belief / JSON 失败）。",
                            "检查 provider 的 structured output 兼容性；加强契约修复重试的提示词。",
                            violations[0].contract_violation or ""))
+    if timeouts:
+        findings.append(_f("warn", "故障", f"助手响应超时 ×{len(timeouts)}（不计入协议违约）",
+                           "assistant 120s 未响应：provider 延迟/容量问题，非协议能力。",
+                           "检查 provider 稳定性或提高 response_timeout_sec；并发批量时注意限流。",
+                           timeouts[0].contract_violation or ""))
     if degraded:
         findings.append(_f("warn", "故障", f"LLM 调用降级 ×{len(degraded)}",
                            "LLM 超时/失败重试耗尽后跳过 turn。",
@@ -264,6 +275,33 @@ def compute_insights(
                            "对话深入后 x̂ 与真实状态的距离反而增大——估计器在带偏自己。",
                            "检查 Harness 的 belief 更新逻辑：新信息应单调改善估计，而不是被先验锚定。"))
 
+    # ================= 推荐接受度 =================
+    # add_event_todo 成功后用户的下一句被判定为"明确抗拒"的比率——
+    # 新范式下（用户只说感受、助手搜索推荐）这是推荐质量最直接的可观察反馈。
+    from usersim.evaluator.consistency import classify_acceptance
+    rec_scheduled = 0
+    rec_rejected = 0
+    for sid, ts in sess_map.items():
+        for i, t in enumerate(ts):
+            if t.speaker != "assistant":
+                continue
+            if not any(r.name == "add_event_todo" and r.ok for r in t.tool_results):
+                continue
+            rec_scheduled += 1
+            for nt in ts[i + 1:]:
+                if nt.speaker == "user":
+                    if classify_acceptance(nt.text) == "explicit_resistance":
+                        rec_rejected += 1
+                    break
+    if rec_scheduled:
+        stats["rec_rejected"] = {"scheduled": rec_scheduled, "rejected": rec_rejected,
+                                 "ratio": round(rec_rejected / rec_scheduled, 3)}
+        if rec_scheduled >= 3 and rec_rejected / rec_scheduled > 0.3:
+            findings.append(_f("warn", "助手",
+                               f"推荐被明确拒绝 ×{rec_rejected}/{rec_scheduled}",
+                               "超过 30% 的安排被用户直接拒绝——推荐与用户的需求/偏好不匹配。",
+                               "检查助手是否利用画像信念推荐（偏好类目/loves），以及是否无视了用户的餍足反馈。"))
+
     # ================= 经济分析 =================
     money = [s.money_after for s in slots]
     income_events = Counter()
@@ -384,9 +422,13 @@ def compute_insights(
     ess = sum(total_error(s.x_after, targets) for s in slots[-12:]) / max(1, len(slots[-12:]))
     max_bias = max((abs(d["xhat_bias"]) for d in dims if d["xhat_bias"] is not None), default=0)
     w = _score_weights(score_cfg)
+    # 违约按"每 100 个助手 turn"归一：原始计数随话痨/高效助手话务量漂移，
+    # 跨 run 不可比（v4；此前是原始计数，session 多的 run 被冤枉）
+    n_assistant_turns = sum(1 for t in turns if t.speaker == "assistant")
+    violation_rate = len(violations) / max(1, n_assistant_turns) * 100
     observations = {
         "ess": ess,
-        "violations": len(violations),
+        "violations": round(violation_rate, 4),
         "xhat_bias": max_bias,
         "user_dup": user_dup,
         "clamp_ratio": clamp_ratio,
@@ -404,6 +446,8 @@ def compute_insights(
     health = max(0, round(100.0 - sum(deductions.values())))
     stats["health_score"] = health
     stats["score_deductions"] = {k: round(v, 2) for k, v in deductions.items()}
+    # 原始观测量导出：benchmark 分数（evaluator/score.py）直接复用，避免两处各算一遍
+    stats["score_observations"] = {k: round(float(v), 4) for k, v in observations.items()}
     stats["ess"] = round(ess, 4)
     stats["n_turns"] = len(turns)
     stats["n_sessions"] = len(sessions)

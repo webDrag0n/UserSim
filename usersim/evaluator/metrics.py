@@ -56,17 +56,25 @@ def compute_metrics(
     mean_e = sum(es) / n
     variance = sum((e - mean_e) ** 2 for e in es) / n
 
-    # 调节时间：首次压力冲出带外后，连续 settle_band_slots 个时段回带
-    settle_band = eval_cfg.settle_band_slots
-    settling_time = None
+    # 调节时间：首次压力冲出带外后，从该点起 3 天滑窗内 in_band 占比 ≥ 阈值即视为稳定。
+    # v5 起改窗口驻留判定：旧版要求连续 8 时段全在带——日内正常摆幅（精力周期、
+    # 扰动余波）会永久打断连续计数，导致控制良好的 run 也永远"未稳定"。
+    # d0 为 None（全程未出带）记 settling_time=0.0——从未失控即是从起点就稳定，
+    # 不能与"出带后从未回带"（None）混为一谈。
+    win = int(getattr(eval_cfg, "settle_window_days", 3) or 3) * slots_per_day
+    ratio_min = float(getattr(eval_cfg, "settle_in_band_ratio", 0.70) or 0.70)
     d0 = next((i for i, x in enumerate(xs) if dim_error(x, "stress", targets) > band), None)
-    if d0 is not None:
-        run = 0
-        for i in range(d0, n):
-            run = run + 1 if in_band(xs[i]) else 0
-            if run >= settle_band:
-                settling_time = (i - d0 - settle_band + 1) / slots_per_day
+    if d0 is None:
+        settling_time = 0.0
+    elif win > 0:
+        settling_time = None
+        for i in range(d0, n - win + 1):
+            chunk = xs[i:i + win]
+            if sum(1 for x in chunk if in_band(x)) / win >= ratio_min:
+                settling_time = (i - d0) / slots_per_day
                 break
+    else:
+        settling_time = None
 
     # 超调量：冲出带外后（前置窗口）被反向压到目标以下的最大深度。
     # 排除"大考结束"等事件巨量释放造成的下冲（那是事件效果，不是控制器过校正）。
@@ -96,9 +104,10 @@ def compute_metrics(
     # 滑动窗口指标序列（docs/04 第 4 节：无限延展的 run 用滑窗做健康监控）
     windows = _sliding_windows(xs, targets, band, slots_per_day, window_days, in_band)
 
-    # 估计误差学习曲线（每日 mean ‖x−x̂‖₂）
+    # 估计误差学习曲线（每日 mean ‖x−x̂‖₂）；终值取末端 5 天均值
+    # （v3：单日采样会被末端恰遇的剧情相位/扰动日主导，5 天窗抗噪声）
     daily_est_err = _daily_est_err(turns, slots_per_day)
-    est_err_final = daily_est_err[-1][1] if daily_est_err else float("nan")
+    est_err_final = _tail_mean(daily_est_err, 5)
     est_err_slope = _slope([p[0] for p in daily_est_err], [p[1] for p in daily_est_err]) if len(daily_est_err) > 1 else 0.0
 
     # 后 10 天误差趋势：窗口均值对比（比端点斜率抗振荡噪声）
@@ -152,6 +161,14 @@ def compute_metrics(
     }
 
 
+def _tail_mean(daily: list, days: int) -> float:
+    """末端 days 天均值（抗单日剧情相位噪声）；不足则取全部，空则 nan。"""
+    if not daily:
+        return float("nan")
+    tail = [e for _, e in daily[-days:]]
+    return sum(tail) / len(tail)
+
+
 def _profile_metrics(turns: list[TurnRecord], persona, slots_per_day: int) -> dict:
     """画像精度：人格 facet 误差 + 喜好类目误差 + loves/hates 命中率（含学习曲线）。
 
@@ -190,7 +207,7 @@ def _profile_metrics(turns: list[TurnRecord], persona, slots_per_day: int) -> di
 
     last = hats[-1].persona_hat
     return {
-        "persona_err_final": daily[-1][1] if daily else float("nan"),
+        "persona_err_final": _tail_mean(daily, 5),  # 末端 5 天均值（同 est_err_final）
         "persona_err_slope_per_day": (
             _slope([d for d, _ in daily], [e for _, e in daily]) if len(daily) > 1 else 0.0),
         "persona_coverage": round(facet_coverage(last.facets), 3),

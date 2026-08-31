@@ -90,6 +90,19 @@ def _normalize_effects_in_list(items: list[dict] | None, key: str = "effect") ->
     return items
 
 
+def _normalize_venues(data: list[dict] | None) -> list[dict] | None:
+    """归一化统一地点表：supports 内每条 effect 补全四维（pull 数组保留）；
+    兼容旧式顶层 effect 字段。"""
+    if data is None:
+        return None
+    for vn in data:
+        for s in vn.get("supports", []):
+            s["effect"] = _normalize_effect(s.get("effect"))
+        if "effect" in vn:
+            vn["effect"] = _normalize_effect(vn["effect"])
+    return data
+
+
 def _normalize_weather(data: dict | None) -> dict | None:
     """归一化天气配置：确保 state_effects 包含四维。"""
     if data is None:
@@ -98,22 +111,6 @@ def _normalize_weather(data: dict | None) -> dict | None:
     for state, eff in effects.items():
         effects[state] = _normalize_effect(eff)
     return data
-
-
-def _compute_effects(actions: list[dict]) -> list[dict]:
-    """确保每个 variant 有合计 effect（base_effect + weight），并归一化维度。"""
-    for a in actions:
-        a["base_effect"] = _normalize_effect(a.get("base_effect"))
-        for v in a.get("variants", []):
-            v["weight"] = _normalize_effect(v.get("weight"))
-            total = dict(a["base_effect"])
-            for k, val in v["weight"].items():
-                if isinstance(val, (int, float)):
-                    total[k] = total.get(k, 0) + val
-                else:
-                    total[k] = val
-            v["effect"] = total
-    return actions
 
 
 def load_overrides(force: bool = False) -> dict:
@@ -142,7 +139,7 @@ def load_overrides(force: bool = False) -> dict:
 
         recovery = _load_json("recovery_actions.json")
         if recovery:
-            out["recovery_actions"] = _compute_effects(recovery)
+            out["recovery_actions"] = recovery
             out["source"] = "json"
 
         disturbances = _load_json("disturbances.json")
@@ -173,6 +170,11 @@ def load_overrides(force: bool = False) -> dict:
         custom_activities = _load_json("custom_activities.json")
         if custom_activities:
             out["custom_activities"] = _normalize_effects_in_list(custom_activities)
+            out["source"] = "json"
+
+        venues = _load_json("venues.json")
+        if venues:
+            out["venues"] = _normalize_venues(venues)
             out["source"] = "json"
 
         professions = _load_json("professions.json")
@@ -221,12 +223,14 @@ def save_config_file(filename: str, data: any) -> None:
 def reset_config_file(filename: str) -> bool:
     """从代码默认值重置指定配置文件；返回是否成功。"""
     from usersim.world import catalog, anthro
+    from usersim.config import load_system_config
 
     defaults: dict[str, any] = {
         "recovery_actions.json": catalog.RECOVERY_ACTIONS,
         "meal_tiers.json": catalog.MEAL_TIERS,
         "sleep_tiers.json": catalog.SLEEP_TIERS,
         "custom_activities.json": catalog.CUSTOM_ACTIVITIES,
+        "venues.json": catalog.VENUES,
         "professions.json": catalog.PROFESSIONS,
         "disturbances.json": catalog.DISTURBANCES,
         "template_events.json": catalog.TEMPLATE_EVENTS,
@@ -239,6 +243,8 @@ def reset_config_file(filename: str) -> bool:
             name: {"w_min": w, "tau": t, "curve": c}
             for name, (w, t, c) in anthro.HABITUATION_DEFAULTS.items()
         },
+        # dynamics.json 的"默认值"= system.toml [dynamics]（引擎基线；该文件自 v5 起是活配置）
+        "dynamics.json": load_system_config().dynamics.to_dict(),
     }
 
     if filename not in defaults:

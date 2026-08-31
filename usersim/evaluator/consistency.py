@@ -521,7 +521,17 @@ def compute_pra(
     turns: list[TurnRecord],
     persona: dict,
 ) -> tuple[dict, list[dict]]:
-    """检查用户主动请求的活动是否与人格偏好一致。"""
+    """检查落地的活动安排是否与人格偏好对齐（v2 信号源迁移）。
+
+    用户不再直接点名方案（只说感受/需求），"请求"的主要可观察信号是
+    **世界裁决后实际落地的日程事件**（add_event_todo 成功）：
+    - misaligned：安排了人格中讨厌类目（pref < -0.3）的事件——用户接受则
+      由 M1-PAC 判一致性，这里度量的是"讨厌类目被安排"本身；
+    - loved_never_requested（键名保留）：热爱类目全程从未被安排——
+      从用户侧考点变为 assistant 画像利用考点。
+    用户文本关键词降级为辅助：仅当 session 内没有任何裁决事件时，
+    才用首条用户消息的类目做补充提取。
+    """
     metrics: dict = {
         "pra_misaligned_requests": 0,
         "pra_total_requests": 0,
@@ -538,37 +548,50 @@ def compute_pra(
         if t.session_id:
             sessions[t.session_id].append(t)
 
-    requested_categories: Counter[str] = Counter()
+    scheduled_categories: Counter[str] = Counter()
     misaligned_details: list[dict] = []
 
     for sid, sess_turns in sessions.items():
-        # 取用户的首条消息（通常包含意图描述）
-        user_turns = [t for t in sess_turns if t.speaker == "user"]
-        if not user_turns:
-            continue
+        # 主信号：本 session 世界裁决后落地的日程事件类目
+        event_names: list[str] = []
+        for t in sess_turns:
+            name = _event_name_from_tool_results(t)
+            if name:
+                event_names.append(name)
 
-        # 从用户文本中提取请求的活动类目
-        for ut in user_turns:
-            cat = extract_event_category_from_text(ut.text)
+        cats: list[str] = []
+        for name in event_names:
+            cat = pref_category(name)
             if cat:
-                requested_categories[cat] += 1
-                metrics["pra_total_requests"] += 1
+                cats.append(cat)
 
-                pref_score = categories.get(cat, 0.0)
-                if pref_score < -0.3:
-                    metrics["pra_misaligned_requests"] += 1
-                    misaligned_details.append({
-                        "session_id": sid,
-                        "category": cat,
-                        "pref_score": pref_score,
-                        "text": ut.text[:80],
-                    })
-                break  # 只取每个 session 的首个请求
+        # 辅助信号：无裁决事件时才从用户首条文本提取
+        if not cats:
+            for ut in sess_turns:
+                if ut.speaker != "user":
+                    continue
+                cat = extract_event_category_from_text(ut.text)
+                if cat:
+                    cats.append(cat)
+                break  # 只取首个请求
 
-    # 检查喜爱的类目是否从未被请求
+        for cat in cats:
+            scheduled_categories[cat] += 1
+            metrics["pra_total_requests"] += 1
+            pref_score = categories.get(cat, 0.0)
+            if pref_score < -0.3:
+                metrics["pra_misaligned_requests"] += 1
+                misaligned_details.append({
+                    "session_id": sid,
+                    "category": cat,
+                    "pref_score": pref_score,
+                    "text": event_names[0][:80] if event_names else "",
+                })
+
+    # 检查喜爱的类目是否从未被安排
     loved = [c for c, v in categories.items() if v >= 0.5]
     for cat in loved:
-        if cat not in requested_categories:
+        if cat not in scheduled_categories:
             metrics["pra_loved_never_requested"].append(cat)
 
     # 生成 findings
@@ -576,10 +599,10 @@ def compute_pra(
         findings.append({
             "severity": "warn",
             "category": "一致性",
-            "title": f"主动请求讨厌类目 ×{metrics['pra_misaligned_requests']}",
-            "detail": f"用户 {metrics['pra_misaligned_requests']} 次主动请求了人格中讨厌的活动类型。",
-            "suggestion": "检查 UserPlanner 的意图选择是否与偏好一致；"
-                          "讨厌类目的事件不应出现在用户的 event_library 高优先级候选中。",
+            "title": f"讨厌类目被安排 ×{metrics['pra_misaligned_requests']}",
+            "detail": f"{metrics['pra_misaligned_requests']} 次落地的日程安排属于人格中讨厌的活动类型。",
+            "suggestion": "若是助手推荐：检查其画像利用（应避开讨厌类目）；"
+                          "若是用户点名：检查用户 plan prompt 的偏好注入是否与角色卡一致。",
             "evidence": misaligned_details[0].get("text", "") if misaligned_details else "",
         })
 
@@ -588,12 +611,13 @@ def compute_pra(
         findings.append({
             "severity": "info",
             "category": "一致性",
-            "title": f"喜爱类目未被请求：{'、'.join(never_req)}",
-            "detail": f"角色明确偏爱的 {'、'.join(never_req)} 在整个 run 中从未被主动请求。",
-            "suggestion": "检查 UserPlanner 和 event_library 是否包含了足够的该类事件。",
+            "title": f"热爱类目未被安排：{'、'.join(never_req)}",
+            "detail": f"角色明确偏爱的 {'、'.join(never_req)} 在整个 run 中从未被安排。",
+            "suggestion": "检查助手是否利用画像信念主动推荐热爱类目（画像利用考点）；"
+                          "若用户从未表达相关需求，检查用户 plan prompt 的偏好注入。",
         })
 
-    metrics["pra_requested_categories"] = dict(requested_categories.most_common(10))
+    metrics["pra_requested_categories"] = dict(scheduled_categories.most_common(10))
     metrics["pra_misaligned_details"] = misaligned_details[:10]
     return metrics, findings
 
@@ -764,7 +788,7 @@ def compute_csps(
     category_sentiments: dict[str, list[float]] = defaultdict(list)
 
     for sid, sess_turns in sessions.items():
-        # 找到此 session 涉及的事件类目
+        # 找到此 session 涉及的事件类目（主信号：世界裁决后落地的事件名）
         event_cats: set[str] = set()
         for t in sess_turns:
             event_name = _event_name_from_tool_results(t)
@@ -773,11 +797,13 @@ def compute_csps(
                 if cat:
                     event_cats.add(cat)
 
-            # 也从用户文本中提取
-            if t.speaker == "user":
-                cat = extract_event_category_from_text(t.text)
-                if cat:
-                    event_cats.add(cat)
+        # 用户文本关键词降级为辅助：仅当 session 内没有裁决事件类目时
+        if not event_cats:
+            for t in sess_turns:
+                if t.speaker == "user":
+                    cat = extract_event_category_from_text(t.text)
+                    if cat:
+                        event_cats.add(cat)
 
         # 取用户在此 session 的整体情感
         user_texts = [t.text for t in sess_turns if t.speaker == "user"]

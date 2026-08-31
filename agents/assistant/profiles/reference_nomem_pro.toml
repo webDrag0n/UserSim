@@ -1,0 +1,8 @@
+# reference_nomem_pro：reference_nomem 消融 + deepseek-v4-pro（能力分级 × 记忆消融交互对照）
+type = "package"
+description = "模型分级×消融对照：reference_nomem harness + deepseek-v4-pro"
+prompt_version = "v5.4-nomem"
+impl = "reference_nomem"     # 实现包文件夹名（缺省 = 本 profile 名）
+
+[llm]                        # 覆盖 agents/assistant/config.toml 的模型绑定
+model = "deepseek-v4-pro"

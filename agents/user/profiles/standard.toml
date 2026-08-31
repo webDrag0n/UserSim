@@ -1,0 +1,11 @@
+# 标准 LLM 用户：LLM 意图规划（prompt v5）+ UserMemory（滚动记忆）+ LLMUserAgent（表演）
+# type = package → 导入同级实现包 agents/user/standard/，create(client, behavior) 构造
+type = "package"
+description = "标准 LLM 用户：LLM 意图 + memory + 表演（demo 默认）"
+prompt_version = "v6"
+
+[behavior]
+memory_capacity = 8         # UserMemory 滚动记忆容量（最近 N 个 session 摘要）
+
+# [llm]                      # 可选：覆盖 agents/user/config.toml 的 provider 绑定
+# provider = "deepseek"

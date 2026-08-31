@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   BalanceConfig, BalanceFiles, RecoveryAction, Disturbance, MealTier, SleepTier,
   CustomActivity, Profession, TemplateEvent, HabituationEntry, NeedsEntry, PersonaModEntry,
-  EffectDict, EffectDim, EFFECT_DIMS, WeatherConfig,
+  EffectDict, EffectDim, EFFECT_DIMS, WeatherConfig, Venue,
   api,
 } from '../api'
 import { PlainCard as Card, Badge } from '../components/ui'
@@ -12,6 +12,7 @@ import { cssVar } from '../components/theme'
 
 const FILE_LABELS: Record<string, string> = {
   events:             '事件配置',
+  venues:             '地点表',
   weather:            '天气系统',
   professions:        '职业收入',
   economy:            '经济参数',
@@ -24,7 +25,7 @@ const FILE_LABELS: Record<string, string> = {
 const FILE_ORDER = Object.keys(FILE_LABELS)
 
 const RESETABLE = new Set([
-  'events', 'professions', 'economy', 'habituation',
+  'events', 'venues', 'professions', 'economy', 'habituation',
 ])
 
 const DIM_LABEL: Record<EffectDim, string> = {
@@ -364,9 +365,10 @@ type EventRow = {
   location?: string
   tier?: string
   span?: number
-  cost: number
-  income: number
-  effect: EffectDict
+  cost?: number
+  income?: number
+  effect?: EffectDict
+  intent?: string
   habitKey: string | null
   source: { file: 'recovery_actions' | 'disturbances' | 'meal_tiers' | 'sleep_tiers' | 'custom_activities'; path: (number | string)[] }
 }
@@ -374,23 +376,18 @@ type EventRow = {
 function buildEventRows(files: BalanceFiles): EventRow[] {
   const rows: EventRow[] = []
 
+  // 恢复动作只剩定义：价格/效果由地点表（venues）逐项覆盖
   for (const action of (files.recovery_actions || []) as RecoveryAction[]) {
-    for (const v of action.variants) {
-      rows.push({
-        kind: 'recovery',
-        id: v.vid,
-        name: `${action.action}`,
-        category: action.category,
-        location: v.location,
-        tier: v.tier,
-        span: v.span,
-        cost: v.cost,
-        income: 0,
-        effect: normalizeEffect(v.effect),
-        habitKey: action.action,
-        source: { file: 'recovery_actions', path: [action.id, 'variant', v.vid] },
-      })
-    }
+    rows.push({
+      kind: 'recovery',
+      id: action.id,
+      name: action.action,
+      category: action.category,
+      span: action.default_span,
+      intent: action.design_intent,
+      habitKey: action.action,
+      source: { file: 'recovery_actions', path: [action.id] },
+    })
   }
 
   for (const t of (files.meal_tiers || []) as MealTier[]) {
@@ -453,8 +450,8 @@ function buildEventRows(files: BalanceFiles): EventRow[] {
 
 function collectLocations(files: BalanceFiles): string[] {
   const locs = new Set<string>()
-  for (const action of (files.recovery_actions || []) as RecoveryAction[]) {
-    for (const v of action.variants) if (v.location) locs.add(v.location)
+  for (const v of (files.venues || []) as Venue[]) {
+    if (v.name) locs.add(v.name)
   }
   for (const d of (files.disturbances || []) as Disturbance[]) {
     if (d.location) locs.add(d.location)
@@ -472,7 +469,7 @@ function EventsEditor({
   files,
   onChange,
 }: {
-  files: Pick<BalanceFiles, 'recovery_actions' | 'disturbances' | 'meal_tiers' | 'sleep_tiers' | 'custom_activities' | 'habituation' | 'template_events'>
+  files: Pick<BalanceFiles, 'recovery_actions' | 'disturbances' | 'meal_tiers' | 'sleep_tiers' | 'custom_activities' | 'habituation' | 'template_events' | 'venues'>
   onChange: (changed: Partial<BalanceFiles>) => void
 }) {
   const [localFiles, setLocalFiles] = useState(files)
@@ -494,26 +491,8 @@ function EventsEditor({
     const next = JSON.parse(JSON.stringify(localFiles)) as typeof localFiles
     const f = (next as any)[row.source.file]
     if (!f) return
-
-    if (row.source.file === 'recovery_actions') {
-      const actionId = row.source.path[0]
-      const vid = row.source.path[2]
-      const action = f.find((a: any) => a.id === actionId)
-      if (!action) return
-      const variant = action.variants.find((v: any) => v.vid === vid)
-      if (!variant) return
-      variant.effect[dim] = val as any
-      const baseVal = action.base_effect[dim]
-      let delta: any = val
-      if (!isPullValue(val) && !isPullValue(baseVal)) {
-        delta = Number(val) - Number(baseVal ?? 0)
-      }
-      variant.weight[dim] = delta
-    } else {
-      const item = f.find((x: any) => x.id === row.id || x.vid === row.id)
-      if (item) item.effect[dim] = val as any
-    }
-
+    const item = f.find((x: any) => x.id === row.id || x.vid === row.id)
+    if (item) item.effect[dim] = val as any
     setLocalFiles(next)
     onChange({ [row.source.file]: f })
   }
@@ -524,8 +503,12 @@ function EventsEditor({
     if (!f) return
     const item = f.find((x: any) => x.id === row.id || x.vid === row.id)
     if (!item) return
-    if (field === 'cost' || field === 'income' || field === 'span') {
+    if (field === 'span' && row.source.file === 'recovery_actions') {
+      item.default_span = Number(raw)
+    } else if (field === 'cost' || field === 'income' || field === 'span') {
       item[field] = Number(raw)
+    } else if (field === 'intent') {
+      item.design_intent = raw
     } else {
       item[field] = raw
     }
@@ -539,9 +522,9 @@ function EventsEditor({
   return (
     <Card className="p-3 overflow-x-auto">
       <div className="text-[11px] text-t2 mb-3 leading-relaxed space-y-1">
-        <p><strong className="text-t1">事件配置表</strong>：统一管理所有对世界状态产生直接效果的事件。每一行是一个具体事件（恢复动作变体、进餐/睡眠档位、自定义活动、扰动事件）。</p>
+        <p><strong className="text-t1">事件配置表</strong>：统一管理所有对世界状态产生直接效果的事件。恢复动作（A1–A6）只保留定义（类别/默认时长/设计意图），价格与四维效果由「地点表」逐项覆盖；进餐/睡眠档位、自定义活动、扰动事件在此直接编辑。</p>
         <ul className="list-disc pl-4 space-y-0.5 text-[10.5px]">
-          <li><span className="text-t3">合计效果</span>：心情/精力/饱腹/压力四个维度；0 表示无影响，右键单元格可切换 pull 模式（拉向准稳态）。</li>
+          <li><span className="text-t3">合计效果</span>：心情/精力/饱腹/压力四个维度；0 表示无影响，右键单元格可切换 pull 模式（拉向准稳态）。恢复动作行此列改为编辑设计意图。</li>
           <li><span className="text-t3">边际效益曲线</span>：描述同一事件重复发生时效果递减/恢复的规律。w_min=最低权重，τ=恢复所需时段数，curve=曲线类型（exp 指数、sqrt 前快后慢、s 型）。</li>
           <li><span className="text-t3">扰动事件</span>：以红色分隔线区分，代表外部强加事件，不参与习惯化。</li>
         </ul>
@@ -556,7 +539,7 @@ function EventsEditor({
             <Th>时长</Th>
             <Th>¥</Th>
             <Th>收入¥</Th>
-            <Th className="min-w-[220px]">合计效果</Th>
+            <Th className="min-w-[220px]">合计效果 / 设计意图</Th>
             <Th className="min-w-[220px]">边际效益曲线（习惯化）</Th>
           </tr>
         </thead>
@@ -590,10 +573,18 @@ function EventsEditor({
                   )
                 }
                 </Td>
-                <Td className="text-t3 font-num">{row.span ?? '—'}</Td>
-                <Td><Cell value={row.cost} numeric onSave={v => updateField(row, 'cost', v)} /></Td>
-                <Td><Cell value={row.income} numeric onSave={v => updateField(row, 'income', v)} /></Td>
-                <Td><EffectGrid effect={row.effect} onChange={(dim, val) => updateEffect(row, dim, val)} /></Td>
+                <Td className="text-t3 font-num">{
+                  row.span !== undefined
+                    ? <Cell value={row.span} numeric onSave={v => updateField(row, 'span', v)} />
+                    : '—'
+                }</Td>
+                <Td>{row.cost !== undefined ? <Cell value={row.cost} numeric onSave={v => updateField(row, 'cost', v)} /> : '—'}</Td>
+                <Td>{row.income !== undefined ? <Cell value={row.income} numeric onSave={v => updateField(row, 'income', v)} /> : '—'}</Td>
+                <Td>{
+                  row.effect
+                    ? <EffectGrid effect={row.effect} onChange={(dim, val) => updateEffect(row, dim, val)} />
+                    : <span className="text-t2 text-[10.5px]"><Cell value={row.intent ?? ''} onSave={v => updateField(row, 'intent', v)} /></span>
+                }</Td>
                 <Td>
                   {(() => {
                     const key = row.habitKey
@@ -624,6 +615,145 @@ function EventsEditor({
           ))}
         </tbody>
       </table>
+    </Card>
+  )
+}
+
+// ── 统一地点表：每个地点一行，supports 子行逐项覆盖事件价格/效果 ──────────────────
+function VenuesEditor({ data, eventOptions, onChange }: { data: Venue[]; eventOptions: string[]; onChange: (v: Venue[]) => void }) {
+  const mutate = (fn: (next: Venue[]) => void) => {
+    const next = JSON.parse(JSON.stringify(data)) as Venue[]
+    fn(next); onChange(next)
+  }
+  const newSupport = (): Venue['supports'][number] => ({
+    event: eventOptions[0] ?? 'A1', cost: 0, span: 1,
+    effect: { valence: 0, energy: 0, satiety: 0, stress: 0 },
+  })
+  const addVenue = () => mutate(n => {
+    const maxId = n.reduce((m, v) => {
+      const num = parseInt(v.id.replace(/^V/i, ''), 10)
+      return Number.isFinite(num) ? Math.max(m, num) : m
+    }, 0)
+    n.push({
+      id: `V${String(maxId + 1).padStart(3, '0')}`,
+      name: '新地点', category: '', cuisine: '', aliases: [],
+      supports: [newSupport()], design_intent: '',
+    })
+  })
+
+  return (
+    <Card className="p-3 overflow-x-auto">
+      <div className="text-[11px] text-t2 mb-3 leading-relaxed space-y-1">
+        <p><strong className="text-t1">统一地点表</strong>：每个地点一行（跨子行合并），supports 子行逐项声明该地点可承载的事件及其价格、时长与四维效果——地点逐项覆盖事件定义（事件本身只剩 A1–A6 / C1–C6 的类别与设计意图）。</p>
+        <ul className="list-disc pl-4 space-y-0.5 text-[10.5px]">
+          <li><span className="text-t3">事件</span>：下拉选择（A1–A6 恢复动作、C1–C6 自定义活动）；标签可选，用于同一事件在同一地点的多种玩法（如「家」的补觉/看片/下厨）。</li>
+          <li><span className="text-t3">效果</span>：心情/精力/饱腹/压力四维；0 表示无影响，右键单元格切换 pull 模式（拉向准稳态）。</li>
+          <li><span className="text-t3">代餐</span>：勾选后该地点的进餐可替代三餐结算。</li>
+          <li><span className="text-t3">别名</span>：顿号/逗号分隔，供对话文本匹配到该地点。</li>
+        </ul>
+      </div>
+      <table className="text-[11px] border-collapse w-full">
+        <thead>
+          <tr>
+            <Th>ID</Th>
+            <Th>名称</Th>
+            <Th>类别</Th>
+            <Th>菜系</Th>
+            <Th>别名</Th>
+            <Th>代餐</Th>
+            <Th>事件</Th>
+            <Th>标签</Th>
+            <Th>¥</Th>
+            <Th>时长</Th>
+            <Th className="min-w-[220px]">效果</Th>
+            <Th>设计意图</Th>
+            <Th>{''}</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.map((v, vi) => {
+            const supports = v.supports.length > 0 ? v.supports : [null]
+            return supports.map((s, si) => (
+              <tr key={`${v.id}-${si}`} className={`border-b border-edge hover:bg-[var(--hover)] ${si === 0 ? 'border-t-2 border-t-[var(--edge)]' : ''}`}>
+                {si === 0 && (
+                  <>
+                    <Td rowSpan={supports.length} className="text-t3 font-num whitespace-nowrap">
+                      <div>{v.id}</div>
+                      <div className="flex flex-col gap-0.5 mt-1">
+                        <button
+                          onClick={() => mutate(n => { n[vi].supports.push(newSupport()) })}
+                          className="text-[9.5px] text-t3 hover:text-[var(--accent)] text-left"
+                        >＋子项</button>
+                        <button
+                          onClick={() => { if (confirm(`确定删除地点「${v.name}」及其全部支持条目？`)) mutate(n => { n.splice(vi, 1) }) }}
+                          className="text-[9.5px] text-t3 hover:text-[var(--critical)] text-left"
+                        >删地点</button>
+                      </div>
+                    </Td>
+                    <Td rowSpan={supports.length} className="text-t1 font-medium whitespace-nowrap">
+                      <Cell value={v.name} onSave={raw => mutate(n => { n[vi].name = raw })} />
+                    </Td>
+                    <Td rowSpan={supports.length}><Cell value={v.category} onSave={raw => mutate(n => { n[vi].category = raw })} /></Td>
+                    <Td rowSpan={supports.length}><Cell value={v.cuisine} onSave={raw => mutate(n => { n[vi].cuisine = raw })} /></Td>
+                    <Td rowSpan={supports.length} className="text-t2 max-w-[160px]">
+                      <Cell
+                        value={v.aliases.join('、')}
+                        onSave={raw => mutate(n => { n[vi].aliases = raw.split(/[,，、;；]+/).map(x => x.trim()).filter(Boolean) })}
+                      />
+                    </Td>
+                    <Td rowSpan={supports.length} className="text-center">
+                      <input
+                        type="checkbox"
+                        checked={!!v.replaces_meal}
+                        onChange={e => mutate(n => { if (e.target.checked) n[vi].replaces_meal = true; else delete n[vi].replaces_meal })}
+                        className="accent-[var(--accent)] scale-90 cursor-pointer"
+                        title="进餐可替代三餐结算"
+                      />
+                    </Td>
+                  </>
+                )}
+                {s ? (
+                  <>
+                    <Td><SelectCell value={s.event} options={eventOptions} onSave={raw => mutate(n => { n[vi].supports[si].event = raw })} mono /></Td>
+                    <Td className="text-t2 whitespace-nowrap"><Cell value={s.label ?? ''} onSave={raw => mutate(n => { if (raw) n[vi].supports[si].label = raw; else delete n[vi].supports[si].label })} /></Td>
+                    <Td><Cell value={s.cost} numeric onSave={raw => mutate(n => { n[vi].supports[si].cost = Number(raw) })} /></Td>
+                    <Td><Cell value={s.span} numeric onSave={raw => mutate(n => { n[vi].supports[si].span = Number(raw) })} /></Td>
+                    <Td>
+                      <EffectGrid
+                        effect={normalizeEffect(s.effect)}
+                        onChange={(dim, val) => mutate(n => {
+                          const eff = n[vi].supports[si].effect as any
+                          eff[dim] = val
+                        })}
+                      />
+                    </Td>
+                  </>
+                ) : (
+                  <Td colSpan={5} className="text-t3 text-[10px]">无支持条目——点 ID 列「＋子项」添加</Td>
+                )}
+                {si === 0 && (
+                  <Td rowSpan={supports.length} className="text-t3 max-w-[220px]">
+                    <Cell value={v.design_intent} onSave={raw => mutate(n => { n[vi].design_intent = raw })} />
+                  </Td>
+                )}
+                <Td>
+                  {s && (
+                    <button
+                      onClick={() => mutate(n => { n[vi].supports.splice(si, 1) })}
+                      className="text-t3 hover:text-[var(--critical)] px-0.5"
+                      title="删除该支持条目"
+                    >×</button>
+                  )}
+                </Td>
+              </tr>
+            ))
+          })}
+        </tbody>
+      </table>
+      <button
+        onClick={addVenue}
+        className="mt-2 text-[11px] px-2 py-1 rounded-md border border-edge text-t2 hover:border-accent hover:text-[var(--accent)] transition-colors"
+      >＋ 新增地点</button>
     </Card>
   )
 }
@@ -1083,6 +1213,11 @@ export default function BalancePage() {
   })
 
   const eventLocations = collectLocations(localFiles)
+  // 地点表 supports 的事件下拉选项：恢复动作 A1–A6 + 自定义活动 C0–C6
+  const eventOptions = [
+    ...(localFiles.recovery_actions ?? []).map(a => a.id),
+    ...(localFiles.custom_activities ?? []).map(c => c.id),
+  ]
 
   const renderEditor = (key: string) => {
     const files = localFiles as any
@@ -1097,10 +1232,12 @@ export default function BalancePage() {
             custom_activities: files.custom_activities,
             habituation: files.habituation,
             template_events: files.template_events,
+            venues: files.venues,
           }}
           onChange={handleEventChanges}
         />
       )
+      case 'venues':             return <VenuesEditor data={files.venues} eventOptions={eventOptions} onChange={v => handleChange(key, v)} />
       case 'professions':        return <ProfessionEditor data={files.professions} onChange={v => handleChange(key, v)} />
       case 'economy':            return <KVEditor data={files.economy} onChange={v => handleChange(key, v)} title="经济参数" description="初始金钱、加班收入、负债压力等全局经济设定。" />
       case 'dynamics':           return <KVEditor data={files.dynamics} onChange={v => handleChange(key, v)} title="动力学参数" description="状态自然漂移、工作消耗、反弹阈值等世界动力学系数。" />

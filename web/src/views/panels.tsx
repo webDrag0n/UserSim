@@ -2,14 +2,15 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   ComposedChart, Line, Bar, ReferenceLine, ReferenceArea, ResponsiveContainer, Legend,
 } from 'recharts'
-import { api, Report, RunEvent, SeriesInfo, Slot, Turn } from '../api'
+import { api, BenchmarkTerm, Report, RunEvent, SeriesInfo, Slot, Turn } from '../api'
 import { DIMS, BAND, VERDICTS, cssVar, useThemeVersion } from '../components/theme'
-import { ChartGrid, ThemedXAxis, ThemedYAxis, ThemedTooltip } from '../components/charts'
+import { ChartGrid, ThemedXAxis, ThemedYAxis, ThemedTooltip, useChartAnimation } from '../components/charts'
 import { PlainCard as Card, Stat } from '../components/ui'
 
 // ---------- 轨迹面板：状态轨迹 + 金钱 ----------
 export function TrajectoryPanel({ slots, series = [] }: { slots: Slot[]; series?: SeriesInfo[] }) {
   useThemeVersion()
+  const anim = useChartAnimation()
   const [view, setView] = useState<'valence' | 'energy' | 'satiety' | 'stress' | 'money'>('stress')
   const dim = DIMS.find((d) => d.key === (view === 'money' ? 'stress' : view))!
   const dimColor = cssVar(dim.cssVar)
@@ -58,7 +59,7 @@ export function TrajectoryPanel({ slots, series = [] }: { slots: Slot[]; series?
               <ReferenceArea key={s.id} x1={s.start_day} x2={s.end_day} fill={cssVar('--series')} fillOpacity={0.08}
                 label={{ value: `${s.icon}${s.name}`, fill: cssVar('--series'), fontSize: 10, position: 'insideTop' }} />
             ))}
-            <Line type="monotone" dataKey="value" stroke={view === 'money' ? cssVar('--satiety') : dimColor} strokeWidth={1.8} dot={false} />
+            <Line {...anim} type="monotone" dataKey="value" stroke={view === 'money' ? cssVar('--satiety') : dimColor} strokeWidth={1.8} dot={false} />
             <ThemedTooltip labelFormatter={(x: number) => `第 ${Math.floor(Number(x)) + 1} 天`}
               formatter={(val: number) => [view === 'money' ? `¥${val}` : val.toFixed(3), view === 'money' ? '金钱' : dim.label]} />
           </ComposedChart>
@@ -70,6 +71,7 @@ export function TrajectoryPanel({ slots, series = [] }: { slots: Slot[]; series?
 
 // ---------- 经济面板 ----------
 export function EconomyPanel({ slots, events }: { slots: Slot[]; events: RunEvent[] }) {
+  const anim = useChartAnimation()
   const daily = useMemo(() => {
     const days = Math.ceil(slots.length / 4)
     return Array.from({ length: days }, (_, d) => {
@@ -102,9 +104,9 @@ export function EconomyPanel({ slots, events }: { slots: Slot[]; events: RunEven
               <ThemedYAxis yAxisId="left" />
               <ThemedYAxis yAxisId="right" orientation="right" />
               <Legend wrapperStyle={{ fontSize: 11, color: cssVar('--text-2') }} />
-              <Bar yAxisId="left" dataKey="delta" name="日净变动" fill={cssVar('--energy')} radius={[3, 3, 0, 0]} />
-              <Bar yAxisId="left" dataKey="spend" name="事件消费" fill={cssVar('--critical')} radius={[3, 3, 0, 0]} />
-              <Line yAxisId="right" type="monotone" dataKey="money" name="余额" stroke={cssVar('--satiety')} strokeWidth={2} dot={false} />
+              <Bar {...anim} yAxisId="left" dataKey="delta" name="日净变动" fill={cssVar('--energy')} radius={[3, 3, 0, 0]} />
+              <Bar {...anim} yAxisId="left" dataKey="spend" name="事件消费" fill={cssVar('--critical')} radius={[3, 3, 0, 0]} />
+              <Line {...anim} yAxisId="right" type="monotone" dataKey="money" name="余额" stroke={cssVar('--satiety')} strokeWidth={2} dot={false} />
               <ThemedTooltip labelFormatter={(x: number) => `第 ${Number(x) + 1} 天`} />
             </ComposedChart>
           </ResponsiveContainer>
@@ -117,6 +119,7 @@ export function EconomyPanel({ slots, events }: { slots: Slot[]; events: RunEven
 // ---------- 估计误差面板 ----------
 export function EstErrPanel({ report, turns }: { report: Report | null; turns: Turn[] }) {
   useThemeVersion()
+  const anim = useChartAnimation()
   const perTurn = useMemo(() => turns.filter((t) => t.x_hat).map((t) => ({
     idx: t.turn_id,
     err: +Math.sqrt(
@@ -136,8 +139,8 @@ export function EstErrPanel({ report, turns }: { report: Report | null; turns: T
               <ChartGrid />
               <ThemedXAxis dataKey="day" />
               <ThemedYAxis />
-              <Line type="monotone" dataKey="err" stroke={cssVar('--persona')} strokeWidth={2} dot={false} />
-              <ThemedTooltip />
+              <Line {...anim} type="monotone" dataKey="err" name="估计误差" stroke={cssVar('--persona')} strokeWidth={2} dot={false} />
+              <ThemedTooltip labelFormatter={(x: number) => `第 ${Number(x) + 1} 天`} />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -151,8 +154,8 @@ export function EstErrPanel({ report, turns }: { report: Report | null; turns: T
               <ChartGrid />
               <ThemedXAxis dataKey="idx" />
               <ThemedYAxis />
-              <Line type="monotone" dataKey="err" stroke={cssVar('--accent')} strokeWidth={1.5} dot={{ r: 1.5, fill: cssVar('--accent') }} />
-              <ThemedTooltip />
+              <Line {...anim} type="monotone" dataKey="err" name="估计误差" stroke={cssVar('--accent')} strokeWidth={1.5} dot={{ r: 1.5, fill: cssVar('--accent') }} />
+              <ThemedTooltip labelFormatter={(x: number) => `turn ${x}`} />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -164,9 +167,25 @@ export function EstErrPanel({ report, turns }: { report: Report | null; turns: T
 // ---------- 指标面板 ----------
 export function MetricsPanel({ report }: { report: Report | null }) {
   useThemeVersion()
+  const [showTerms, setShowTerms] = useState(true)  // 明细默认展开：公式要求完整可读
   if (!report) return <p className="text-sm text-t3">报告计算中…</p>
   const v = VERDICTS[report.verdict]
   const vColor = cssVar(v.cssVar)
+  const bm = report.benchmark
+  const bmColor = bm ? (bm.score >= 80 ? 'var(--good)' : bm.score >= 60 ? 'var(--warning)' : 'var(--critical)') : ''
+  // 代入数值：总扣分与最终得分；明细行按组插入小标题
+  const bmTotal = bm ? bm.terms.reduce((s, t) => s + t.deduct, 0) : 0
+  const bmRows: ({ type: 'group'; key: string; label: string } | { type: 'term'; key: string; t: BenchmarkTerm })[] = []
+  if (bm) {
+    let prev = ''
+    for (const t of bm.terms) {
+      if (t.group !== prev) {
+        bmRows.push({ type: 'group', key: `g-${t.group}`, label: bm.groups[t.group]?.label ?? t.group })
+        prev = t.group
+      }
+      bmRows.push({ type: 'term', key: t.key, t })
+    }
+  }
   const metrics = [
     { label: '稳态误差', sym: 'e_ss', val: report.ess.toFixed(3), hint: '窗口末端 mean |x−r|，越小越收敛' },
     { label: '调节时间', sym: 't_s', val: report.settling_time_days === null ? '未稳定' : `${report.settling_time_days.toFixed(2)} 天`, hint: '扰动后重新入带并保持的天数' },
@@ -186,6 +205,77 @@ export function MetricsPanel({ report }: { report: Report | null }) {
            report.verdict === 'oscillating' ? '能回稳但反复过冲，存在极限环' : '状态持续偏离，无法恢复'}
         </span>
       </div>
+      {bm && (
+        <div className="rounded-2xl border p-5"
+          style={{ borderColor: `color-mix(in srgb, ${bmColor} 35%, transparent)`, background: `color-mix(in srgb, ${bmColor} 5%, transparent)` }}>
+          <div className="flex flex-wrap items-end gap-4 mb-4">
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-4xl font-bold font-num" style={{ color: bmColor }}>{bm.score.toFixed(1)}</span>
+              <span className="text-sm text-t3 font-num">/100</span>
+            </div>
+            <span className="rounded-full px-2.5 py-0.5 text-[11px] font-medium font-num"
+              style={{ color: bmColor, background: `color-mix(in srgb, ${bmColor} 12%, transparent)`, border: `1px solid color-mix(in srgb, ${bmColor} 35%, transparent)` }}>
+              benchmark {bm.version}
+            </span>
+            <div className="ml-auto text-right">
+              <div className="text-[11px] font-num text-t2">{bm.formula}</div>
+              <div className="text-[11px] font-num text-t3 mt-0.5">
+                = max(0, 100 − {bmTotal.toFixed(1)}) = <span style={{ color: bmColor }}>{bm.score.toFixed(1)}</span>
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            {(['control', 'belief', 'contract'] as const).map((g) => bm.groups[g] && (
+              <div key={g} className="rounded-lg bg-surface-2 px-3 py-2 flex items-center justify-between text-[12px]">
+                <span className="text-t2">{bm.groups[g].label}</span>
+                <span className={`font-num ${bm.groups[g].deduct > 0 ? 'text-[var(--warning)]' : 'text-t3'}`}>
+                  −{bm.groups[g].deduct.toFixed(1)} 分
+                </span>
+              </div>
+            ))}
+          </div>
+          <button onClick={() => setShowTerms((s) => !s)}
+            className="text-[12px] text-t2 hover:text-t1 transition-colors">
+            逐项扣分明细（含权重） {showTerms ? '▴' : '▾'}
+          </button>
+          {showTerms && (
+            <div className="overflow-x-auto mt-2">
+              <table className="w-full text-[11px]">
+                <thead>
+                  <tr className="text-left text-t3 border-b border-edge">
+                    <th className="pb-1.5 pr-3 font-medium whitespace-nowrap">指标</th>
+                    <th className="pb-1.5 pr-3 font-medium whitespace-nowrap">观测量 xₖ</th>
+                    <th className="pb-1.5 pr-3 font-medium whitespace-nowrap">系数 wₖ</th>
+                    <th className="pb-1.5 pr-3 font-medium whitespace-nowrap">上限 capₖ</th>
+                    <th className="pb-1.5 pr-3 font-medium whitespace-nowrap">扣分 min(capₖ, wₖ·xₖ)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bmRows.map((row) => row.type === 'group' ? (
+                    <tr key={row.key} className="border-b border-edge">
+                      <td colSpan={5} className="pt-2.5 pb-1 text-[10.5px] font-semibold text-t3">{row.label}</td>
+                    </tr>
+                  ) : (
+                    <tr key={row.key} className="border-b border-edge">
+                      <td className="py-1.5 pr-3 text-t2 whitespace-nowrap">{row.t.label}</td>
+                      <td className="py-1.5 pr-3 font-num text-t2 whitespace-nowrap">{row.t.obs}</td>
+                      <td className="py-1.5 pr-3 font-num text-t3 whitespace-nowrap">{row.t.coef}</td>
+                      <td className="py-1.5 pr-3 font-num text-t3 whitespace-nowrap">{row.t.cap}</td>
+                      <td className="py-1.5 pr-3 font-num whitespace-nowrap"
+                        style={{ color: row.t.deduct > 0 ? (row.t.deduct >= row.t.cap ? 'var(--critical)' : 'var(--warning)') : undefined }}>
+                        {row.t.deduct > 0 ? `−${row.t.deduct.toFixed(1)}` : '0'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="text-[10.5px] text-t3 leading-relaxed mt-3 pt-3 border-t border-edge">
+            百分制扣分：所有指标先归一为「越大越差」的观测量 xₖ，乘系数 wₖ、封顶 capₖ 后从 100 扣减。扣分制统一了指标方向，缺失指标（未稳定、无画像）按满误差计——不作为不能免罚。每项封顶是为防止单一病态指标抹掉其他维度的区分度；线性系数让「改 0.01 误差值多少分」可心算、可调参（config/system.toml [benchmark]）。权重主体给控制表现（稳态误差最重），其次状态估计与画像，契约违约与仿真有效性只作门槛项。详见 docs/04-evaluator.md 第 8 节。
+          </p>
+        </div>
+      )}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {metrics.map((m) => (
           <Card key={m.sym} className="p-4">

@@ -4,7 +4,7 @@ import {
 } from 'recharts'
 import { SeriesInfo, Slot } from '../api'
 import { DIMS, cssVar, useThemeVersion } from '../components/theme'
-import { ChartGrid, ThemedXAxis, ThemedYAxis, ThemedTooltip } from '../components/charts'
+import { ChartGrid, ThemedXAxis, ThemedYAxis, ThemedTooltip, useChartAnimation } from '../components/charts'
 import { seriesColor } from './gantt'
 
 // 统一状态轨迹：四维曲线共一张图（左轴 0-1），金钱独立右轴；
@@ -25,6 +25,7 @@ export default function UnifiedTrajectory({ slots, series, curT, onSeek }: {
   })), [slots])
 
   useThemeVersion()
+  const anim = useChartAnimation()
   const cur = slots[curT] ?? null
   const curDay = +(curT / 4).toFixed(2)
 
@@ -76,10 +77,10 @@ export default function UnifiedTrajectory({ slots, series, curT, onSeek }: {
             ))}
             <ReferenceLine x={curDay} yAxisId="left" stroke={cssVar('--accent')} strokeWidth={1.5} />
             {DIMS.map((d) => (
-              <Line key={d.key} yAxisId="left" type="monotone" dataKey={d.key} name={d.label}
+              <Line key={d.key} {...anim} yAxisId="left" type="monotone" dataKey={d.key} name={d.label}
                 stroke={cssVar(d.cssVar)} strokeWidth={1.8} dot={false} />
             ))}
-            <Line yAxisId="right" type="monotone" dataKey="money" name="金钱（右轴）"
+            <Line {...anim} yAxisId="right" type="monotone" dataKey="money" name="金钱（右轴）"
               stroke={cssVar('--satiety')} strokeWidth={1.5} strokeDasharray="5 3" dot={false} />
             <ThemedTooltip labelFormatter={(x: number) => `第 ${Math.floor(Number(x)) + 1} 天`} />
           </ComposedChart>

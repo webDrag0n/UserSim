@@ -1,5 +1,7 @@
 # 01 · 世界模拟器
 
+> ⚠️ 注：replay 模式已于 R4 下线（量程守护迁移至 live 锚点对 reference vs stub），文中 replay/脚本三档内容为历史记录。
+
 World 是 UserSim 的纯规则核心：0 次 LLM 调用，不 import agents / evaluator / llm。同一 seed 在规则回放模式下产出完全相同的轨迹。
 
 ---
@@ -48,7 +50,7 @@ x = [valence, energy, satiety, stress] ∈ [0, 1]⁴
 
 ## 需求动力学
 
-4 个需求持续累积，由生物钟调制，驱动 UserPlanner 选出意图。
+4 个需求持续累积，由生物钟调制。需求 urges 经 `plan_slot` 请求流向用户侧，但 live 模式下意图由用户侧 LLM 生成（数值不进 prompt，状态-表达解耦；见 docs/02-user-agent.md）；replay 脚本用户仍直接由 urges 驱动。
 
 ### 四个需求与驱动力公式
 
@@ -72,6 +74,10 @@ x = [valence, energy, satiety, stress] ∈ [0, 1]⁴
 ## 习惯化曲线
 
 重复执行同类事件，效果递减；间隔足够长后恢复。实现在 `balance-sheet/UserSim数值配表.xlsx` 的习惯化曲线 sheet，可在 Web 配表编辑器中实时修改并预览函数曲线。
+
+venue 餐厅（`config/balance/venues.json` 的具体场所，见 docs/08-event-catalog.md）同样参与习惯化（habituation.json 有 6 条覆盖）；模板"三餐"豁免。最近一次执行的动作习惯化权重 < 0.6 时，world 产出 `satiation_note` 餍足提示（"最近总是{动作}，感觉有点腻了"）注入用户侧 context，让"腻了"可表达。
+
+R7 起，感知通道升级为 `utility_menu`：world 对 `_last_done` 里每个活动算当前 hab_weight 并翻译成语义档位（≥0.85 还很新鲜 / 0.6~0.85 吸引力降了 / 0.35~0.6 效果明显打折 / <0.35 腻了基本没用，权重升序排列），外加"还没试过的"候选清单（规范动作键，上限 8 个）。与效果裁决同一数据源、同一公式——用户感知到的边际效用与世界实际施加的衰减一致，用户据此在规划时权衡各事件实际 utility、在反馈时拒绝重复安排。
 
 ---
 
@@ -117,6 +123,8 @@ x = [valence, energy, satiety, stress] ∈ [0, 1]⁴
 `类型 / 起止时段 / 地点 / 事件目标 / 事件效果 Δx / 当前进度`
 
 模板事件的 `effect` 为空——其作用体现在自然漂移中，避免与基线双重计数；显式 Δx 只挂在扰动和恢复事件上。
+
+餐饮场所事件（venues 饮食类，或带 `replaces_meal` 标记的场所）活跃时，当日模板"三餐"在**同 slot**（午/晚饭时段，slot 1/2）的效果被抑制——按 slot 粒度抑制，不删事件；该标记落在 `Event.replaces_meal`（docs/05-contracts.md）。
 
 ### 因果链记录
 

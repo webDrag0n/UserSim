@@ -1,0 +1,15 @@
+# ============================================================
+# 用户 demo agent 配置（独立于 usersim；密钥仍在 config/llm.toml 或环境变量）
+#
+# 可供选择的 user 实现 = profiles/*.toml 的文件清单（type: package）：
+# 增删文件即增删实现；type=package 的实现需在同名文件夹提供 Python 包
+# （暴露 create(client, behavior)）。选择方式：--impl <name> 或下方的 default。
+# ============================================================
+
+default = "standard"        # 默认实现（profiles/ 下的文件名）
+
+[llm]
+provider = "deepseek"       # 引用 config/llm.toml [providers.*]（base_url/api_key 来源）
+model = "deepseek-v4-flash"  # 固定版本：别名 deepseek-chat 实测被静默换血至此版本；钉住具体名保证跨天可比
+temperature = 0.5           # 用户=测量仪器需一定采样稳定，但 0.25 实测会把用户压成复读机（死循环对话）
+# max_tokens = 4096         # 可选覆盖

@@ -95,8 +95,8 @@ def artifact_hashes() -> dict[str, str]:
         "balance": balance_hash,
         "catalog": _file_hash(root / "usersim" / "world" / "catalog.py"),
         "prompts": _sha12(
-            _file_hash(root / "usersim" / "agents" / "assistant" / "reference.py").encode()
-            + _file_hash(root / "usersim" / "agents" / "user" / "llm_user.py").encode()
+            _file_hash(root / "agents" / "assistant" / "reference" / "harness.py").encode()
+            + _file_hash(root / "agents" / "user" / "standard" / "llm_user.py").encode()
         ),
     }
     parts["combined"] = _sha12("|".join(f"{k}={v}" for k, v in sorted(parts.items())).encode())
@@ -123,17 +123,20 @@ class LLMRole(Namespace):
     max_tokens: int
 
 
-def load_llm_role(role: str, path: Path | None = None) -> LLMRole:
-    """解析某个角色（user_agent / assistant_agent / reference_user）的完整 LLM 配置。"""
+def resolve_provider(provider: str, overrides: dict[str, Any] | None = None,
+                     path: Path | None = None) -> LLMRole:
+    """解析一个 provider 的完整 LLM 配置：config/llm.toml [providers.*] + 调用方覆盖。
+
+    agent 的 LLM 绑定在各 agent 自己的 config.toml（agents/<role>/，[llm] 节）：
+    只写 provider 引用与 model/temperature 等覆盖；api_key 仍由本函数从
+    llm.toml / 环境变量解析（密钥规约不变）。
+    """
     path = path or PROJECT_ROOT / "config" / "llm.toml"
     cfg = _load_toml(path)
-    roles = cfg.get("roles", {})
-    role_cfg = roles.get(role)
-    provider = (role_cfg or {}).get("provider") or cfg.get("default_provider")
-    if not provider or provider not in cfg.get("providers", {}):
-        raise ConfigError(f"角色 '{role}' 未绑定有效 provider（config/llm.toml）")
-    merged = {**cfg["providers"][provider], **(role_cfg or {})}
-    merged.pop("provider", None)
+    providers = cfg.get("providers", {})
+    if provider not in providers:
+        raise ConfigError(f"未知 provider {provider!r}（config/llm.toml [providers]）")
+    merged = {**providers[provider], **(overrides or {})}
     merged["provider"] = provider
     merged["api_key"] = _resolve_key(provider, merged)
     merged.setdefault("temperature", 0.7)
@@ -147,15 +150,32 @@ def load_llm_runtime(path: Path | None = None) -> Namespace:
     return Namespace(_load_toml(path).get("runtime", {}))
 
 
+# 角色 → agent 配置文件（LLM 绑定已移至各 agent 自己的文件夹；此处仅文件级读取）
+_AGENT_CONFIG_FILES = {
+    "user_agent": "agents/user/config.toml",
+    "assistant_agent": "agents/assistant/config.toml",
+}
+
+
 def llm_roles_summary(path: Path | None = None) -> dict[str, dict[str, str]]:
-    """各角色 provider/model 摘要（不含密钥，用于 RunMeta）。"""
+    """各角色 provider/model 摘要（不含密钥，用于 RunMeta）。
+
+    只读 agents/<role>/config.toml 的 [llm] 节与 llm.toml 的 provider 默认 model，
+    不 import agents 代码（usersim 核心不依赖 agents/ 插件包；仅 usersim.agents
+    框架层按 profiles 的 type=package 动态加载）。
+    """
     path = path or PROJECT_ROOT / "config" / "llm.toml"
-    cfg = _load_toml(path)
+    providers = _load_toml(path).get("providers", {}) if path.exists() else {}
     out = {}
-    for role in ("user_agent", "assistant_agent", "reference_user"):
+    for role, rel in _AGENT_CONFIG_FILES.items():
+        cfg_path = PROJECT_ROOT / rel
         try:
-            r = load_llm_role(role, path)
-            out[role] = {"provider": r.provider, "model": r.model}
-        except ConfigError:
+            llm_cfg = tomllib.loads(cfg_path.read_text(encoding="utf-8")).get("llm", {})
+            provider = llm_cfg.get("provider")
+            if not provider:
+                raise ConfigError(f"{rel} 缺少 [llm] provider")
+            model = llm_cfg.get("model") or providers.get(provider, {}).get("model", "-")
+            out[role] = {"provider": provider, "model": model}
+        except (ConfigError, tomllib.TOMLDecodeError, OSError):
             out[role] = {"provider": "unconfigured", "model": "-"}
     return out

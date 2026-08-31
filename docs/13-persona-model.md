@@ -1,5 +1,7 @@
 # 13 · 人格与喜好模型（大五 30 facet + 结构化喜好 + 画像精度）
 
+> ⚠️ 注：replay 模式已于 R4 下线（量程守护迁移至 live 锚点对 reference vs stub），文中 replay/脚本三档内容为历史记录。
+
 状态: 已实现
 
 > 冻结维度从"摆设"变成**系统的一等公民**：用户 Agent 靠它演得像人，助手靠估计它
@@ -223,10 +225,10 @@ poor 档恰好 4 票发散 / 4 票振荡时，benchmark 会把失能助手报成
 | `world/persona.py` | 两层 facet 生成 + 喜好模板 + 职业偏移 |
 | `world/anthro.py` | `persona_modifiers`/`reversion_rate_mult` 改 facet 粒度；**新增** `preference_modifiers` |
 | `world/world.py` | archetype 传生成器；结算接入喜好调节 |
-| `agents/user/llm_user.py` | prompt v2：30 facet 全量注入（含注释）+ 结构化喜好 |
-| `agents/assistant/profile.py` | **新增**：`ProfileTracker` 累积器 |
-| `agents/assistant/reference.py` | prompt v2：增量画像契约 + facet 键名清单 |
-| `agents/scripted.py` | 三档画像预设（0 LLM 回放也有画像轨迹） |
+| `agents/user/standard/llm_user.py` | prompt v2：30 facet 全量注入（含注释）+ 结构化喜好 |
+| `usersim/agents/profile.py` | **新增**：`ProfileTracker` 累积器 |
+| `agents/assistant/reference/harness.py` | prompt v2：增量画像契约 + facet 键名清单 |
+| `usersim/scripted.py` | 三档画像预设（0 LLM 回放也有画像轨迹） |
 | `runner.py` | 每 turn 落盘 `persona_hat`（live + replay 两条路径） |
 | `evaluator/metrics.py` | `_profile_metrics`：画像误差 + 学习曲线 |
 | `evaluator/insights.py` | 画像 findings + `persona_err` 扣分项 |

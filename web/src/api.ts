@@ -57,6 +57,23 @@ export interface RunItem {
   assistant_quality?: string | null; status: string; verdict: string | null; persona_name?: string
   archetype?: string; income_per_slot?: number; started_at?: string
   progress?: { slot: number; total: number }
+  benchmark_score?: number | null
+  profiles?: { user?: string; assistant?: string } | null
+}
+// bench 分组文件夹：runs/_bench/<bench_id>/runs/ 下的各 episode run
+export interface RunGroup {
+  bench_id: string; n_runs: number; harnesses: string[]
+  runs: RunItem[]
+}
+// benchmark 百分制扣分（report.json 的 benchmark 块；terms 固定按 control→belief→contract 排序）
+export interface BenchmarkTerm {
+  key: string; group: string; label: string
+  obs: number; coef: number; cap: number; deduct: number
+}
+export interface Benchmark {
+  version: string; formula: string; score: number
+  groups: Record<string, { label: string; deduct: number }>
+  terms: BenchmarkTerm[]
 }
 export interface Report {
   ess: number; settling_time_days: number | null; overshoot: number
@@ -77,40 +94,59 @@ export interface Report {
   pra_misaligned_requests?: number
   pba_correlation?: number | null
   csps_stability_score?: number | null
+  // benchmark 百分制扣分（新版报告；旧 run 无此字段）
+  benchmark?: Benchmark
 }
 export interface MetricStat { n: number; mean: number | null; std: number | null; ci95: number | null; lo: number | null; hi: number | null }
 export interface BenchGroup {
   n: number
+  // 键见 aggregate.METRIC_KEYS；含 contract_violations（契约违约次数均值）
   metrics: Record<string, MetricStat>
   verdict_share: Record<string, number>
   verdict_mode: string
   never_settled: number
+  verdict_consistency?: number  // 与众数一致的 episode 占比
+}
+export interface MdePair {
+  a: string; b: string
+  metrics: Record<string, { mde_mean: number | null; mde_var_ratio: number | null; n_a: number; n_b: number }>
 }
 export interface BenchAggregate {
   bench_id: string; mode: string; days: number; seeds: number[]
   n_episodes: number
   groups: Record<string, BenchGroup>
   artifact_hashes?: Record<string, string>
+  mde?: { alpha: number; power: number; pairs: MdePair[] }
 }
 export interface Discriminability {
+  // 锚点对组名（新版存档，如 {good: "reference", poor: "stub"}；旧 bench 无此字段，前端回退 good/poor 字样）
+  groups?: { good: string; poor: string }
   thresholds: { diverged_ess_min: number; converged_ess_max: number }
   ess_good_mean: number | null; ess_poor_mean: number | null
+  ess_good_sem?: number | null; ess_poor_sem?: number | null
   margin_poor: number | null; margin_good: number | null; separation: number | null
   checks: Record<string, boolean>; ok: boolean
+  // 黄灯：ess 均值±SEM 跨阈 → borderline（旧存档无此字段，回退 ok/fail 二值）
+  check_status?: Record<string, 'pass' | 'borderline' | 'fail'>
+  status?: 'ok' | 'borderline' | 'fail'
 }
 export interface BenchEpisode {
   group: string; seed: number; archetype: string | null; label: string; run_id: string
   metrics: Record<string, any>
 }
 export interface BenchListItem {
-  bench_id: string; mode: string; days: number; n_episodes: number
+  bench_id: string; mode: string; days: number | null; n_episodes: number
   groups: string[]; has_guard: boolean
+  status?: string; episodes_done?: number
 }
 export interface BenchJob { bench_id: string; status: string; done: number; total: number; error: string | null }
+// 进行中 episode（report.json 未出，进度由 slots.jsonl 推导）
+export interface BenchRunningEp { run_id: string; status: string; progress?: { slot: number; total: number }; days?: number; seed?: number }
 
 export interface Catalog {
   professions: { archetype: string; income_per_slot: number; note: string }[]
-  recovery_actions: { id: string; action: string; category: string; variants: { vid: string; location: string; tier: string; cost: number; span: number }[] }[]
+  recovery_actions: { id: string; action: string; category: string; design_intent: string; default_span: number }[]
+  venues: { id: string; name: string; category: string; cuisine: string; supports: { event: string; cost: number; span: number }[] }[]
   meal_tiers: { vid: string; name: string; cost: number }[]
   sleep_tiers: { vid: string; name: string; cost: number }[]
 }
@@ -122,14 +158,20 @@ export type EffectDim = typeof EFFECT_DIMS[number]
 
 export interface EffectDict { valence: number | { pull: [number, number] }; energy: number | { pull: [number, number] }; satiety: number | { pull: [number, number] }; stress: number | { pull: [number, number] } }
 
-export interface Variant {
-  vid: string; location: string; tier: string; cost: number; span: number
-  weight: EffectDict; effect?: EffectDict
-}
-
 export interface RecoveryAction {
   id: string; action: string; category: string
-  base_effect: EffectDict; design_intent: string; variants: Variant[]
+  design_intent: string; default_span: number
+}
+
+// 统一地点表：价格/效果在 supports 条目上逐项覆盖事件定义
+export interface VenueSupport {
+  event: string; label?: string; cost: number; span: number; effect: EffectDict
+}
+
+export interface Venue {
+  id: string; name: string; category: string; cuisine: string
+  aliases: string[]; replaces_meal?: boolean
+  supports: VenueSupport[]; design_intent: string
 }
 
 export interface MealTier {
@@ -176,6 +218,7 @@ export interface WeatherConfig {
 
 export interface BalanceFiles {
   recovery_actions?: RecoveryAction[]
+  venues?: Venue[]
   meal_tiers?: MealTier[]
   sleep_tiers?: SleepTier[]
   custom_activities?: CustomActivity[]
@@ -197,13 +240,15 @@ export interface BalanceConfig {
 
 const j = (r: Response) => r.json()
 export const api = {
-  listRuns: (): Promise<{ runs: RunItem[] }> => fetch('/api/runs').then(j),
+  listRuns: (): Promise<{ runs: RunItem[]; groups: RunGroup[] }> => fetch('/api/runs').then(j),
   startRun: (body: { mode: string; seed: number; days: number; quality: string; archetype?: string | null; harness?: string | null }) =>
     fetch('/api/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(j),
   continueRun: (id: string, extraDays: number) =>
     fetch(`/api/runs/${id}/continue`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ extra_days: extraDays }) }).then(j),
   deleteRuns: (ids: string[]): Promise<{ deleted: string[]; skipped: { run_id: string; reason: string }[] }> =>
     fetch('/api/runs/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ run_ids: ids }) }).then(j),
+  deleteBench: (ids: string[]): Promise<{ deleted: string[]; skipped: { bench_id: string; reason: string }[] }> =>
+    fetch('/api/bench/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bench_ids: ids }) }).then(j),
   runDetail: (id: string) => fetch(`/api/runs/${id}`).then(j),
   turns: (id: string, offset = 0, limit = 5000): Promise<{ total: number; items: Turn[] }> =>
     fetch(`/api/runs/${id}/turns?offset=${offset}&limit=${limit}`).then(j),
@@ -223,9 +268,9 @@ export const api = {
   harnesses: (): Promise<{ items: { name: string; doc: string }[]; default: string }> =>
     fetch('/api/harnesses').then(j),
   listBench: (): Promise<{ items: BenchListItem[]; jobs: BenchJob[] }> => fetch('/api/bench').then(j),
-  benchDetail: (id: string): Promise<{ aggregate?: BenchAggregate; discriminability?: Discriminability; episodes?: BenchEpisode[]; job?: BenchJob; pending?: boolean }> =>
+  benchDetail: (id: string): Promise<{ aggregate?: BenchAggregate; discriminability?: Discriminability; episodes?: BenchEpisode[]; job?: BenchJob; pending?: boolean; running?: BenchRunningEp[] }> =>
     fetch(`/api/bench/${id}`).then(j),
-  startBench: (body: { seeds: string; days: number; mode: string; groups?: string[]; max_episodes?: number }) =>
+  startBench: (body: { seeds: string; days: number; groups?: string[]; archetypes?: string[]; max_episodes?: number; concurrency?: number; bench_id?: string }): Promise<{ started: boolean; bench_id?: string; n_episodes?: number; estimated_tokens?: number; error?: string }> =>
     fetch('/api/bench', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(j),
 }
 

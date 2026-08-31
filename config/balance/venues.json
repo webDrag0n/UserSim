@@ -1,0 +1,1117 @@
+[
+  {
+    "id": "V001",
+    "name": "川渝老火锅（巷子里店）",
+    "category": "饮食",
+    "cuisine": "火锅",
+    "aliases": [
+      "火锅",
+      "川渝火锅",
+      "老火锅"
+    ],
+    "supports": [
+      {
+        "event": "A1",
+        "cost": 120,
+        "span": 1,
+        "effect": {
+          "valence": 0.1,
+          "satiety": 0.18,
+          "stress": -0.05
+        }
+      }
+    ],
+    "design_intent": "平价火锅主力：辣锅解馋饱腹强，重口略有刺激",
+    "replaces_meal": true
+  },
+  {
+    "id": "V002",
+    "name": "精品鲜货火锅（商场旗舰店）",
+    "category": "饮食",
+    "cuisine": "火锅",
+    "aliases": [
+      "精品火锅",
+      "鲜货火锅"
+    ],
+    "supports": [
+      {
+        "event": "A1",
+        "cost": 220,
+        "span": 1,
+        "effect": {
+          "valence": 0.16,
+          "satiety": 0.16,
+          "stress": -0.08
+        }
+      }
+    ],
+    "design_intent": "高档火锅：环境与服务把预算加权到心情与减压，饱腹反而略低",
+    "replaces_meal": true
+  },
+  {
+    "id": "V003",
+    "name": "寿喜烧专门店（和牛放题）",
+    "category": "饮食",
+    "cuisine": "寿喜烧",
+    "aliases": [
+      "寿喜烧",
+      "和牛寿喜烧"
+    ],
+    "supports": [
+      {
+        "event": "A1",
+        "cost": 180,
+        "span": 1,
+        "effect": {
+          "valence": 0.14,
+          "satiety": 0.16,
+          "stress": -0.06
+        }
+      }
+    ],
+    "design_intent": "甜口和牛：温和开心，价位中高的小确幸餐",
+    "replaces_meal": true
+  },
+  {
+    "id": "V004",
+    "name": "回转寿司（商场店）",
+    "category": "饮食",
+    "cuisine": "寿司",
+    "aliases": [
+      "寿司",
+      "回转寿司"
+    ],
+    "supports": [
+      {
+        "event": "A1",
+        "cost": 80,
+        "span": 1,
+        "effect": {
+          "valence": 0.08,
+          "satiety": 0.14,
+          "stress": -0.03
+        }
+      }
+    ],
+    "design_intent": "平价日料：快捷饱腹，心情小加成",
+    "replaces_meal": true
+  },
+  {
+    "id": "V005",
+    "name": "鮨·omakase（主厨发办）",
+    "category": "饮食",
+    "cuisine": "日料",
+    "aliases": [
+      "日料",
+      "omakase",
+      "主厨发办"
+    ],
+    "supports": [
+      {
+        "event": "A1",
+        "cost": 450,
+        "span": 1,
+        "effect": {
+          "valence": 0.22,
+          "satiety": 0.12,
+          "stress": -0.1
+        }
+      }
+    ],
+    "design_intent": "顶级日料：分量少但仪式感拉满，预算几乎全加权到心情",
+    "replaces_meal": true
+  },
+  {
+    "id": "V006",
+    "name": "深夜烧烤摊（街角炭火）",
+    "category": "饮食",
+    "cuisine": "烧烤",
+    "aliases": [
+      "烧烤",
+      "烤串",
+      "撸串"
+    ],
+    "supports": [
+      {
+        "event": "A1",
+        "cost": 60,
+        "span": 1,
+        "effect": {
+          "valence": 0.08,
+          "satiety": 0.16,
+          "stress": -0.02,
+          "energy": -0.03
+        }
+      }
+    ],
+    "design_intent": "深夜烤串：解馋但熬夜伤身，精力小扣",
+    "replaces_meal": true
+  },
+  {
+    "id": "V007",
+    "name": "川香小馆（水煮鱼招牌）",
+    "category": "饮食",
+    "cuisine": "川菜",
+    "aliases": [
+      "川菜",
+      "水煮鱼",
+      "麻辣香锅"
+    ],
+    "supports": [
+      {
+        "event": "A1",
+        "cost": 90,
+        "span": 1,
+        "effect": {
+          "valence": 0.09,
+          "satiety": 0.18,
+          "stress": 0.02
+        }
+      }
+    ],
+    "design_intent": "重口川菜：麻辣过瘾但刺激肠胃，压力微升",
+    "replaces_meal": true
+  },
+  {
+    "id": "V008",
+    "name": "粤式茶餐厅（虾饺必点）",
+    "category": "饮食",
+    "cuisine": "粤菜",
+    "aliases": [
+      "茶餐厅",
+      "粤菜",
+      "虾饺"
+    ],
+    "supports": [
+      {
+        "event": "A1",
+        "cost": 55,
+        "span": 1,
+        "effect": {
+          "valence": 0.06,
+          "satiety": 0.15,
+          "stress": -0.03
+        }
+      }
+    ],
+    "design_intent": "街坊茶餐厅：便宜快捷的日常外食",
+    "replaces_meal": true
+  },
+  {
+    "id": "V009",
+    "name": "牛排馆（纪念日之选）",
+    "category": "饮食",
+    "cuisine": "西餐",
+    "aliases": [
+      "牛排",
+      "西餐"
+    ],
+    "supports": [
+      {
+        "event": "A1",
+        "cost": 260,
+        "span": 1,
+        "effect": {
+          "valence": 0.17,
+          "satiety": 0.15,
+          "stress": -0.07
+        }
+      }
+    ],
+    "design_intent": "纪念日西餐：仪式感换心情，饱腹一般",
+    "replaces_meal": true
+  },
+  {
+    "id": "V010",
+    "name": "兰州牛肉面馆（街角老店）",
+    "category": "饮食",
+    "cuisine": "面馆",
+    "aliases": [
+      "面馆",
+      "牛肉面",
+      "拉面"
+    ],
+    "supports": [
+      {
+        "event": "A1",
+        "cost": 18,
+        "span": 1,
+        "effect": {
+          "valence": 0.02,
+          "satiety": 0.14
+        }
+      }
+    ],
+    "design_intent": "最便宜的一餐：能吃饱，毫无仪式感",
+    "replaces_meal": true
+  },
+  {
+    "id": "V011",
+    "name": "东北饺子馆（手工现包）",
+    "category": "饮食",
+    "cuisine": "饺子",
+    "aliases": [
+      "饺子",
+      "饺子馆",
+      "水饺"
+    ],
+    "supports": [
+      {
+        "event": "A1",
+        "cost": 28,
+        "span": 1,
+        "effect": {
+          "valence": 0.03,
+          "satiety": 0.16
+        }
+      }
+    ],
+    "design_intent": "家常水饺：便宜管饱，略有余温",
+    "replaces_meal": true
+  },
+  {
+    "id": "V012",
+    "name": "素食斋（清淡养身）",
+    "category": "饮食",
+    "cuisine": "素食",
+    "aliases": [
+      "素食",
+      "斋菜"
+    ],
+    "supports": [
+      {
+        "event": "A1",
+        "cost": 70,
+        "span": 1,
+        "effect": {
+          "valence": 0.06,
+          "satiety": 0.12,
+          "stress": -0.05
+        }
+      }
+    ],
+    "design_intent": "清淡素食：饱腹一般但肠胃无负担，小幅降压",
+    "replaces_meal": true
+  },
+  {
+    "id": "V013",
+    "name": "海鲜大酒楼（宴请规格）",
+    "category": "饮食",
+    "cuisine": "海鲜",
+    "aliases": [
+      "海鲜",
+      "大酒楼"
+    ],
+    "supports": [
+      {
+        "event": "A1",
+        "cost": 500,
+        "span": 1,
+        "effect": {
+          "valence": 0.2,
+          "satiety": 0.2,
+          "stress": -0.09
+        }
+      }
+    ],
+    "design_intent": "宴请天花板：海鲜管够，心情与排场拉满",
+    "replaces_meal": true
+  },
+  {
+    "id": "V014",
+    "name": "咖啡甜品店（街角落地窗）",
+    "category": "饮食",
+    "cuisine": "咖啡甜品",
+    "aliases": [
+      "咖啡",
+      "甜品",
+      "下午茶"
+    ],
+    "supports": [
+      {
+        "event": "A1",
+        "cost": 40,
+        "span": 1,
+        "effect": {
+          "valence": 0.07,
+          "satiety": 0.06,
+          "stress": -0.04,
+          "energy": 0.02
+        }
+      }
+    ],
+    "design_intent": "下午茶：不顶饱，主要买心情与片刻安静",
+    "replaces_meal": true
+  },
+  {
+    "id": "V015",
+    "name": "深夜居酒屋（巷子深处）",
+    "category": "饮食",
+    "cuisine": "居酒屋",
+    "aliases": [
+      "居酒屋",
+      "深夜食堂"
+    ],
+    "supports": [
+      {
+        "event": "A1",
+        "cost": 130,
+        "span": 1,
+        "effect": {
+          "valence": 0.12,
+          "satiety": 0.14,
+          "stress": -0.08,
+          "energy": -0.03
+        }
+      }
+    ],
+    "design_intent": "深夜小酌：解压强但耗精力，第二天略累",
+    "replaces_meal": true
+  },
+  {
+    "id": "V016",
+    "name": "路边大排档（夏夜小龙虾）",
+    "category": "饮食",
+    "cuisine": "大排档",
+    "aliases": [
+      "大排档",
+      "小龙虾",
+      "路边摊"
+    ],
+    "supports": [
+      {
+        "event": "A1",
+        "cost": 50,
+        "span": 1,
+        "effect": {
+          "valence": 0.07,
+          "satiety": 0.17,
+          "stress": -0.02
+        }
+      }
+    ],
+    "design_intent": "夏夜排挡：烟火气解馋，环境嘈杂减压有限",
+    "replaces_meal": true
+  },
+  {
+    "id": "V017",
+    "name": "私房菜馆（预约制）",
+    "category": "饮食",
+    "cuisine": "私房菜",
+    "aliases": [
+      "私房菜"
+    ],
+    "supports": [
+      {
+        "event": "A1",
+        "cost": 350,
+        "span": 1,
+        "effect": {
+          "valence": 0.19,
+          "satiety": 0.16,
+          "stress": -0.08
+        }
+      }
+    ],
+    "design_intent": "预约制私房菜：口味与私密感都好，贵",
+    "replaces_meal": true
+  },
+  {
+    "id": "V018",
+    "name": "自助餐厅（烤肉火锅双拼）",
+    "category": "饮食",
+    "cuisine": "自助餐",
+    "aliases": [
+      "自助",
+      "自助餐"
+    ],
+    "supports": [
+      {
+        "event": "A1",
+        "cost": 150,
+        "span": 1,
+        "effect": {
+          "valence": 0.1,
+          "satiety": 0.24,
+          "stress": -0.04,
+          "energy": -0.02
+        }
+      }
+    ],
+    "design_intent": "自助餐：饱腹天花板，吃撑了略犯困",
+    "replaces_meal": true
+  },
+  {
+    "id": "V019",
+    "name": "泰餐厅（冬阴功招牌）",
+    "category": "饮食",
+    "cuisine": "泰餐",
+    "aliases": [
+      "泰餐",
+      "冬阴功"
+    ],
+    "supports": [
+      {
+        "event": "A1",
+        "cost": 110,
+        "span": 1,
+        "effect": {
+          "valence": 0.11,
+          "satiety": 0.15,
+          "stress": -0.05
+        }
+      }
+    ],
+    "design_intent": "酸辣泰餐：开胃提神，异域感加心情",
+    "replaces_meal": true
+  },
+  {
+    "id": "V020",
+    "name": "韩式烤肉（五花肉必点）",
+    "category": "饮食",
+    "cuisine": "韩料",
+    "aliases": [
+      "韩料",
+      "韩式烤肉",
+      "烤肉"
+    ],
+    "supports": [
+      {
+        "event": "A1",
+        "cost": 100,
+        "span": 1,
+        "effect": {
+          "valence": 0.1,
+          "satiety": 0.17,
+          "stress": -0.04
+        }
+      }
+    ],
+    "design_intent": "韩式烤肉：自己动手氛围好，饱腹强",
+    "replaces_meal": true
+  },
+  {
+    "id": "V021",
+    "name": "麻辣烫小店（夜宵据点）",
+    "category": "饮食",
+    "cuisine": "麻辣烫",
+    "aliases": [
+      "麻辣烫"
+    ],
+    "supports": [
+      {
+        "event": "A1",
+        "cost": 25,
+        "span": 1,
+        "effect": {
+          "valence": 0.04,
+          "satiety": 0.15,
+          "stress": 0.01
+        }
+      }
+    ],
+    "design_intent": "夜宵麻辣烫：便宜解馋，重口略刺激",
+    "replaces_meal": true
+  },
+  {
+    "id": "V022",
+    "name": "轻食沙拉（健身搭子）",
+    "category": "饮食",
+    "cuisine": "轻食",
+    "aliases": [
+      "轻食",
+      "沙拉"
+    ],
+    "supports": [
+      {
+        "event": "A1",
+        "cost": 35,
+        "span": 1,
+        "effect": {
+          "valence": 0.03,
+          "satiety": 0.1,
+          "stress": -0.02
+        }
+      }
+    ],
+    "design_intent": "轻食沙拉：吃得干净，饱腹与满足感都一般",
+    "replaces_meal": true
+  },
+  {
+    "id": "V023",
+    "name": "日式拉面馆（一人食吧台）",
+    "category": "饮食",
+    "cuisine": "日式拉面",
+    "aliases": [
+      "日式拉面",
+      "豚骨拉面"
+    ],
+    "supports": [
+      {
+        "event": "A1",
+        "cost": 45,
+        "span": 1,
+        "effect": {
+          "valence": 0.05,
+          "satiety": 0.15
+        }
+      }
+    ],
+    "design_intent": "一人食拉面：快捷治愈，深夜食堂平替",
+    "replaces_meal": true
+  },
+  {
+    "id": "V024",
+    "name": "汉堡快餐（出餐飞快）",
+    "category": "饮食",
+    "cuisine": "快餐",
+    "aliases": [
+      "汉堡",
+      "快餐"
+    ],
+    "supports": [
+      {
+        "event": "A1",
+        "cost": 30,
+        "span": 1,
+        "effect": {
+          "valence": 0.03,
+          "satiety": 0.14,
+          "stress": -0.01
+        }
+      }
+    ],
+    "design_intent": "汉堡快餐：出餐快能吃饱，开心有限",
+    "replaces_meal": true
+  },
+  {
+    "id": "V025",
+    "name": "地下 livehouse（周末场）",
+    "category": "音乐",
+    "cuisine": "",
+    "aliases": [
+      "livehouse",
+      "演出",
+      "现场音乐"
+    ],
+    "supports": [
+      {
+        "event": "C3",
+        "cost": 120,
+        "span": 1,
+        "effect": {
+          "valence": 0.12,
+          "stress": -0.1,
+          "energy": -0.04
+        }
+      }
+    ],
+    "design_intent": "现场音乐：情绪释放强，散场略累"
+  },
+  {
+    "id": "V026",
+    "name": "市美术馆（常设展）",
+    "category": "文化",
+    "cuisine": "",
+    "aliases": [
+      "看展",
+      "展览"
+    ],
+    "supports": [
+      {
+        "event": "C1",
+        "cost": 60,
+        "span": 1,
+        "effect": {
+          "valence": 0.1,
+          "stress": -0.06
+        }
+      }
+    ],
+    "design_intent": "看展：精神滋养，温和开心小幅降压"
+  },
+  {
+    "id": "V027",
+    "name": "羽毛球馆（晚场两小时）",
+    "category": "运动",
+    "cuisine": "",
+    "aliases": [
+      "羽毛球",
+      "球馆",
+      "打球"
+    ],
+    "supports": [
+      {
+        "event": "A5",
+        "cost": 40,
+        "span": 1,
+        "effect": {
+          "valence": 0.06,
+          "stress": -0.1,
+          "energy": -0.06
+        }
+      }
+    ],
+    "design_intent": "打球：以精力换减压，出身汗很爽"
+  },
+  {
+    "id": "V028",
+    "name": "桌游店（拼桌友好）",
+    "category": "社交",
+    "cuisine": "",
+    "aliases": [
+      "桌游",
+      "剧本杀"
+    ],
+    "supports": [
+      {
+        "event": "C4",
+        "cost": 60,
+        "span": 1,
+        "effect": {
+          "valence": 0.1,
+          "satiety": 0.04,
+          "energy": -0.03
+        }
+      }
+    ],
+    "design_intent": "桌游社交：拼桌也能玩，开心但耗电"
+  },
+  {
+    "id": "V029",
+    "name": "滨江步道（落日机位）",
+    "category": "户外",
+    "cuisine": "",
+    "aliases": [
+      "江边步道",
+      "滨江",
+      "步道"
+    ],
+    "supports": [
+      {
+        "event": "A3",
+        "cost": 0,
+        "span": 1,
+        "effect": {
+          "valence": 0.06,
+          "stress": -0.08,
+          "energy": 0.02
+        }
+      }
+    ],
+    "design_intent": "免费滨江散步：吹风看落日，稳定小回血"
+  },
+  {
+    "id": "V030",
+    "name": "独立书店（咖啡角）",
+    "category": "学习",
+    "cuisine": "",
+    "aliases": [
+      "书店",
+      "看书"
+    ],
+    "supports": [
+      {
+        "event": "C5",
+        "cost": 30,
+        "span": 1,
+        "effect": {
+          "valence": 0.05,
+          "stress": -0.04,
+          "energy": -0.02
+        }
+      }
+    ],
+    "design_intent": "书店自习：安静输入，小幅回血但耗神"
+  },
+  {
+    "id": "V031",
+    "name": "楼下快餐",
+    "category": "饮食",
+    "cuisine": "",
+    "aliases": [
+      "楼下快餐",
+      "快餐店"
+    ],
+    "supports": [
+      {
+        "event": "A1",
+        "cost": 30,
+        "span": 1,
+        "effect": {
+          "valence": {
+            "pull": [
+              0.5,
+              0.1
+            ]
+          },
+          "satiety": 0.25,
+          "stress": -0.02
+        }
+      }
+    ],
+    "design_intent": "平价兜底：能吃饱但不太开心（原 A1 平价档）"
+  },
+  {
+    "id": "V032",
+    "name": "商场餐厅",
+    "category": "饮食",
+    "cuisine": "",
+    "aliases": [
+      "商场餐厅",
+      "商场"
+    ],
+    "supports": [
+      {
+        "event": "A1",
+        "cost": 120,
+        "span": 1,
+        "effect": {
+          "valence": 0.1,
+          "satiety": 0.25,
+          "stress": -0.06
+        }
+      }
+    ],
+    "design_intent": "中档外食：心情与减压都加权一些（原 A1 中档）"
+  },
+  {
+    "id": "V033",
+    "name": "收藏多年的小店",
+    "category": "饮食",
+    "cuisine": "",
+    "aliases": [
+      "收藏多年的小店",
+      "小店",
+      "珍藏小店"
+    ],
+    "supports": [
+      {
+        "event": "A1",
+        "cost": 200,
+        "span": 1,
+        "effect": {
+          "valence": 0.2,
+          "satiety": 0.25,
+          "stress": -0.1
+        }
+      }
+    ],
+    "design_intent": "高档小馆：预算大幅加权到心情与减压（原 A1 高档）"
+  },
+  {
+    "id": "V034",
+    "name": "家",
+    "category": "居家",
+    "cuisine": "",
+    "aliases": [
+      "家里",
+      "在家"
+    ],
+    "supports": [
+      {
+        "event": "A2",
+        "label": "家里补觉",
+        "cost": 0,
+        "span": 1,
+        "effect": {
+          "energy": 0.2,
+          "stress": -0.05
+        }
+      },
+      {
+        "event": "A6",
+        "label": "看电影打游戏",
+        "cost": 0,
+        "span": 1,
+        "effect": {
+          "valence": 0.06,
+          "satiety": -0.05,
+          "stress": -0.06
+        }
+      },
+      {
+        "event": "A6",
+        "label": "做顿好的",
+        "cost": 40,
+        "span": 1,
+        "effect": {
+          "valence": 0.06,
+          "satiety": 0.25,
+          "stress": -0.05
+        }
+      }
+    ],
+    "design_intent": "零成本基地：补觉/看片/下厨，三种宅法"
+  },
+  {
+    "id": "V035",
+    "name": "按摩 SPA",
+    "category": "休息",
+    "cuisine": "",
+    "aliases": [
+      "按摩",
+      "SPA",
+      "spa",
+      "马杀鸡"
+    ],
+    "supports": [
+      {
+        "event": "A2",
+        "cost": 150,
+        "span": 1,
+        "effect": {
+          "valence": 0.06,
+          "energy": 0.15,
+          "stress": -0.14
+        }
+      }
+    ],
+    "design_intent": "付费休息中档：预算大幅加权到减压（原 A2 中档）"
+  },
+  {
+    "id": "V036",
+    "name": "周边温泉酒店",
+    "category": "休息",
+    "cuisine": "",
+    "aliases": [
+      "温泉",
+      "温泉酒店",
+      "周边温泉"
+    ],
+    "supports": [
+      {
+        "event": "A2",
+        "cost": 400,
+        "span": 2,
+        "effect": {
+          "valence": 0.1,
+          "energy": 0.25,
+          "stress": -0.2
+        }
+      }
+    ],
+    "design_intent": "高档休整：两时段，回血与减压都强（原 A2 高档）"
+  },
+  {
+    "id": "V037",
+    "name": "楼下公园",
+    "category": "户外",
+    "cuisine": "",
+    "aliases": [
+      "楼下公园",
+      "小区公园"
+    ],
+    "supports": [
+      {
+        "event": "A3",
+        "cost": 0,
+        "span": 1,
+        "effect": {
+          "valence": 0.03,
+          "stress": -0.08
+        }
+      }
+    ],
+    "design_intent": "免费兜底散步点（原 A3 平价档）"
+  },
+  {
+    "id": "V038",
+    "name": "江边步道",
+    "category": "户外",
+    "cuisine": "",
+    "aliases": [
+      "江边",
+      "江边步道"
+    ],
+    "supports": [
+      {
+        "event": "A3",
+        "cost": 0,
+        "span": 1,
+        "effect": {
+          "valence": 0.06,
+          "energy": 0.02,
+          "stress": -0.08
+        }
+      }
+    ],
+    "design_intent": "免费散步加强版：心情更好还回点精力（原 A3 平价档）"
+  },
+  {
+    "id": "V039",
+    "name": "近郊徒步",
+    "category": "户外",
+    "cuisine": "",
+    "aliases": [
+      "徒步",
+      "近郊徒步"
+    ],
+    "supports": [
+      {
+        "event": "A3",
+        "cost": 80,
+        "span": 2,
+        "effect": {
+          "valence": 0.1,
+          "energy": -0.06,
+          "stress": -0.16
+        }
+      }
+    ],
+    "design_intent": "两时段徒步：心情强但耗精力（原 A3 中档）"
+  },
+  {
+    "id": "V040",
+    "name": "邻市一日",
+    "category": "旅行",
+    "cuisine": "",
+    "aliases": [
+      "邻市",
+      "一日游",
+      "邻市一日"
+    ],
+    "supports": [
+      {
+        "event": "A4",
+        "cost": 300,
+        "span": 2,
+        "effect": {
+          "valence": 0.12,
+          "stress": -0.1
+        }
+      }
+    ],
+    "design_intent": "平价短途：基础回血（原 A4 平价档）"
+  },
+  {
+    "id": "V041",
+    "name": "海边小镇",
+    "category": "旅行",
+    "cuisine": "",
+    "aliases": [
+      "海边",
+      "海边小镇",
+      "小镇"
+    ],
+    "supports": [
+      {
+        "event": "A4",
+        "cost": 600,
+        "span": 3,
+        "effect": {
+          "valence": 0.2,
+          "energy": 0.05,
+          "stress": -0.18
+        }
+      }
+    ],
+    "design_intent": "中档旅行：三天，加权心情与减压（原 A4 中档）"
+  },
+  {
+    "id": "V042",
+    "name": "远方城市",
+    "category": "旅行",
+    "cuisine": "",
+    "aliases": [
+      "远方",
+      "远方城市",
+      "远游"
+    ],
+    "supports": [
+      {
+        "event": "A4",
+        "cost": 1200,
+        "span": 4,
+        "effect": {
+          "valence": 0.27,
+          "energy": 0.08,
+          "stress": -0.22
+        }
+      }
+    ],
+    "design_intent": "高档旅行：四天，全面加权（原 A4 高档）"
+  },
+  {
+    "id": "V043",
+    "name": "小区跑步",
+    "category": "运动",
+    "cuisine": "",
+    "aliases": [
+      "跑步",
+      "小区跑步",
+      "夜跑"
+    ],
+    "supports": [
+      {
+        "event": "A5",
+        "cost": 0,
+        "span": 1,
+        "effect": {
+          "valence": {
+            "pull": [
+              0.5,
+              0.1
+            ]
+          },
+          "energy": {
+            "pull": [
+              0.5,
+              0.1
+            ]
+          },
+          "stress": -0.08
+        }
+      }
+    ],
+    "design_intent": "免费运动：以精力换降压（原 A5 平价档）"
+  },
+  {
+    "id": "V044",
+    "name": "健身房",
+    "category": "运动",
+    "cuisine": "",
+    "aliases": [
+      "健身房",
+      "健身",
+      "撸铁"
+    ],
+    "supports": [
+      {
+        "event": "A5",
+        "cost": 50,
+        "span": 1,
+        "effect": {
+          "valence": 0.05,
+          "energy": -0.03,
+          "stress": -0.13
+        }
+      }
+    ],
+    "design_intent": "中档运动：降压效率更高（原 A5 中档）"
+  },
+  {
+    "id": "V045",
+    "name": "私教课",
+    "category": "运动",
+    "cuisine": "",
+    "aliases": [
+      "私教",
+      "私教课",
+      "教练"
+    ],
+    "supports": [
+      {
+        "event": "A5",
+        "cost": 200,
+        "span": 1,
+        "effect": {
+          "valence": 0.08,
+          "energy": -0.05,
+          "stress": -0.16
+        }
+      }
+    ],
+    "design_intent": "高档运动：最强降压，略耗精力（原 A5 高档）"
+  }
+]

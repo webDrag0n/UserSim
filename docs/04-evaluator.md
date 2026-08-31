@@ -1,5 +1,7 @@
 # 04 · 评估器（Evaluator）
 
+> ⚠️ 注：replay 模式已于 R4 下线（量程守护迁移至 live 锚点对 reference vs stub），文中 replay/脚本三档内容为历史记录。
+
 状态: 草稿
 
 > **核心原则：0 次 LLM 调用；只读 `runs/` 日志；可离线重放，与世界迭代解耦。**
@@ -228,11 +230,14 @@ $$\text{wsc\_coherence\_score} = 1.0 - \min\left(1.0, 2 \cdot \frac{N_{\text{inc
 
 ### 4.4 M3：喜好-请求对齐（PRA）
 
-**研究问题**：用户是否主动请求了人格中讨厌的活动类型？人格中喜爱的类型是否从未被主动提及？
+**研究问题**：落地的日程安排是否与人格偏好对齐？人格中讨厌的类型是否仍被安排？喜爱的类型是否从未被安排？
 
-**方法**：提取每个 session 的首条用户消息，用关键词映射到偏好类目。若映射到的类目偏好分 $p_c < -0.3$，记为一次 misaligned request。
+**信号源迁移（公式 v2）**：新范式下用户不再直接点名方案（prompt v3：用户有时点名想做的事、有时只说感受，由助手搜索推荐），"请求"的主要可观察信号从"用户台词关键词"迁移为**世界裁决后实际落地的日程事件类目**（`add_event_todo` 成功的 turn，事件名经 `pref_category()` 映射到偏好类目）。用户文本关键词降级为辅助：仅当 session 内没有任何裁决事件时，才用首条用户消息的类目做补充提取。
 
-**补充检查**：偏好分 $\geq 0.5$ 的 loved 类目，若整个 run 中从未被用户主动请求，说明 UserPlanner / event_library 可能缺少该类事件。
+**两个子检查**：
+
+1. **misaligned**：落地事件的类目偏好分 $p_c < -0.3$，记为一次 misaligned——度量的是"讨厌类目被安排"本身（用户接受时是否抗拒由 M1-PAC 判定）。
+2. **loved_never_requested**（键名保留，语义已变）：偏好分 $\geq 0.5$ 的 loved 类目在整个 run 中从未被安排——从用户侧考点变为 **assistant 画像利用考点**（摸清喜好后应主动推荐热爱类目；若用户从未表达相关需求，才回看用户侧 plan prompt 的偏好注入是否与角色卡一致）。
 
 ### 4.5 M4：人格-行为一致性（PBA）
 
@@ -259,7 +264,7 @@ $$\text{pba\_correlation} = \max\left(0, 1 - \frac{N_{\text{warn\_deviations}}}{
 
 **研究问题**：同一用户对同一类目事件的态度在不同 session 间是否稳定？
 
-**方法**：对每个偏好类目，收集各 session 中用户的平均情感分。若类目的情感分极差超过 1.0：
+**方法**：对每个偏好类目，收集各 session 中用户的平均情感分。类目的归属信号源与 M3 相同——**主信号为世界裁决后落地的事件类目**（`add_event_todo` 成功的事件名映射），用户文本关键词仅在 session 内无裁决事件时作辅助。若类目的情感分极差超过 1.0：
 
 $$\max_{j} s_{c,j} - \min_{j} s_{c,j} > 1.0$$
 
@@ -281,6 +286,23 @@ $$\text{csps\_stability\_score} = 1.0 - \min\left(1.0, \frac{N_{\text{unstable\_
 | 高频台词 | 同一文本出现 $\geq 3$ 次（非连续） | 口头禅式表达，felt_state 分档词典需增加同义变体 |
 | 扰动后无求助 | 扰动 slot 后用户从未开 session | decide_open 的 prompt 倾向过于消极 |
 | 求助时延过长 | 平均时延 > 3 个时段 | help_seek 阈值或 assist_prompt 紧迫感不足 |
+
+### 4.7.1 对话形态指标（report["dialogue"]，R4 新增）
+
+`evaluator/dialogue.py` 对 turns.jsonl 做**纯字符串统计**（0 LLM，不测语义只测形态），
+结果写入 `report.json` 顶层 `dialogue` 字段，**不进 benchmark_score**——
+用途是 prompt/机制改动的 before/after 对照与退化回归：
+
+| 字段 | 含义 |
+|------|------|
+| `user_repeat_rate` | session 内相邻 user turn 相似度 > 0.75 的占比（跨 session 不比） |
+| `assistant_repeat_rate` | 同上，助手侧 |
+| `assistant_filler_rate` | 助手回合含纯口癖（好嘞/感叹号）的占比；域词汇（帮你/安排）不计入——真实订单确认语会误命中 |
+| `fused_sessions` | runner 复读熔断强制收尾的次数（熔断日志含"复读熔断"标记） |
+| `sessions` / `session_turns_mean` | session 数与平均轮数（熔断应使其回归正常区间） |
+
+熔断机制本身在 runner（用户连续 3 次 / 助手连续 2 次相似发言强制收尾），
+阈值与这里的统计口径同源（相似度 0.75），保证"熔断数"与"复读率"互相印证。
 
 ### 4.8 Layer 2 解读指南
 
@@ -312,19 +334,21 @@ $$e_{ss} = \frac{1}{T_{\text{tail}}} \sum_{i=n-T_{\text{tail}}}^{n-1} e(\mathbf{
 
 **回答的问题**：系统最终收敛了吗？
 
-**阈值**：$e_{ss} \leq 0.030$ 为"收敛"条件之一；$e_{ss} > 0.080$ 为"发散"条件之一。
+**阈值**：$e_{ss} \leq 0.060$ 为"收敛"条件之一（v4.1 按 20 个干净 live episode 标定）；$e_{ss} > 0.080$ 为"发散"条件之一。
 
 #### 5.1.2 调节时间 $t_s$
 
-找到首次压力冲出带外的时刻 $d_0$（$e_{\text{stress}}(\mathbf{x}_{d_0}) > \beta$），随后寻找第一个满足"连续 $S = 8$ 个时段全部在带内"的位置 $i^*$：
+找到首次压力冲出带外的时刻 $d_0$（$e_{\text{stress}}(\mathbf{x}_{d_0}) > \beta$），随后寻找第一个满足"从 $i$ 起 3 天滑窗（12 个时段）内带内驻留占比 ≥ 70%"的位置 $i^*$：
 
-$$t_s = \frac{i^* - d_0 - S + 1}{\text{spd}} \quad \text{[天]}$$
+$$t_s = \frac{i^* - d_0}{\text{spd}} \quad \text{[天]}$$
 
-如果从未冲出带外，或直到运行结束仍未满足连续 $S$ 个时段入带，则 $t_s = \text{None}$（从未稳定）。
+（v5 起改为**窗口驻留判定**：旧版要求连续 8 个时段全部在带——日内正常摆幅会永久打断连续计数，控制良好的 run 也永远"未稳定"。滑窗参数：`[eval] settle_window_days=3`、`settle_in_band_ratio=0.70`。）
+
+边界语义：**全程从未冲出带外**（$d_0$ 不存在）记 $t_s = 0$——从未失控即是从起点就稳定；**冲出带外但到运行结束都没有任何完整滑窗达标**才记 $t_s = \text{None}$（从未回带）。
 
 **回答的问题**：系统受到扰动后，多久能恢复？
 
-**阈值**：$t_s \leq 2.5$ 天为"收敛"条件之一。
+**阈值**：$t_s \leq 5.0$ 天为"收敛"条件之一（R4 起按 live reference 实测校准；旧值 2.5 天为 replay 脚本口径）。
 
 #### 5.1.3 超调量 $M_p$
 
@@ -336,7 +360,7 @@ $$M_p = \max_{i \in \text{hot\_windows}} \max(0, \sigma^* - x_{\sigma,i})$$
 
 **回答的问题**：控制器是不是"用力过猛"——把 stress 压到了目标以下很远？
 
-**阈值**：$M_p < 0.15$ 为"收敛"条件之一。
+**阈值**：$M_p < 0.20$ 为"收敛"条件之一（R4 起按 live reference 实测校准；旧值 0.15 为 replay 脚本口径）。
 
 #### 5.1.4 积分指标（IAE / ISE / ITAE）
 
@@ -469,6 +493,7 @@ $$\text{prefs\_tag\_f1} = \frac{\text{F1}_{\text{loves}} + \text{F1}_{\text{hate
 | 恢复缓慢 | 扰动后回带时间 > 6 时段 | info | 恢复强度不足（选档太低）或恢复时机过晚 |
 | 工具预算被拒 | `add_event_todo` 因余额不足失败 | info | 正常的经纪博弈信号；高频出现则教助手先查余额 |
 | 日程冲突 | 同一时段重复安排事件 | warn | 助手不看已有日程就写——应先 `view_event_todos` |
+| 推荐被明确拒绝 | `add_event_todo` 成功后用户下一句为明确抗拒的比率 > 0.3（且成功安排 ≥ 3 次） | warn | 推荐与用户需求/偏好不匹配——应利用画像信念推荐（偏好类目/loves），并尊重用户的餍足反馈（`insights.py` `stats["rec_rejected"]`，只进 findings，不进 benchmark 分数） |
 
 ### 5.5 Layer 3 解读指南
 
@@ -476,7 +501,7 @@ $$\text{prefs\_tag\_f1} = \frac{\text{F1}_{\text{loves}} + \text{F1}_{\text{hate
 |---------|---------|---------|
 | $e_{ss} > 0.08$（发散） | 助手控制能力根本不足 | 检查 Harness 的工具使用率、恢复事件强度（档位选择）、时序安排合理性 |
 | $t_s = \text{None}$（永不收敛） | 持续的扰动未被充分应对 | 检查扰动响应覆盖率；增加扰动的恢复事件配对 |
-| $M_p > 0.15$（过冲） | 恢复事件强度过大 | 降低高 stress 时安排的恢复事件档位 |
+| $M_p > 0.20$（过冲） | 恢复事件强度过大 | 降低高 stress 时安排的恢复事件档位 |
 | $\varepsilon_{\text{final}}$ 大且 $m_{\varepsilon} > 0$ | Harness 估计器有结构性缺陷 | 检查 user_model 提示中的状态刻度；加入逐维校准 |
 | $\text{frozen\_ratio} > 0.3$ | 估计器未在每次对话后刷新 | 确保每条新 user 消息后调用 user_model |
 | `persona_coverage` < 0.4 | 助手不主动了解用户 | 在 persona_belief 提示中强调"每次有线索时更新相应 facet" |
@@ -493,7 +518,7 @@ $$\text{prefs\_tag\_f1} = \frac{\text{F1}_{\text{loves}} + \text{F1}_{\text{hate
 
 | Verdict | 条件 | 含义 |
 |---------|------|------|
-| **converged** | $e_{ss} \leq 0.030$ **且** $t_s \neq \text{None}$ **且** $t_s \leq 2.5$ 天 **且** $M_p < 0.15$ | 系统最终收敛到平和带，恢复速度合理，无过冲 |
+| **converged** | $e_{ss} \leq 0.030$ **且** $t_s \neq \text{None}$ **且** $t_s \leq 5.0$ 天 **且** $M_p < 0.20$ | 系统最终收敛到平和带，恢复速度合理，无过冲 |
 | **diverged** | worsening **或** $e_{ss} > 0.080$ | 系统在恶化（后 5 天均值 > 前 5 天 × 1.5 + 0.02），或稳态误差过大 |
 | **oscillating** | 以上皆非 | 能回稳但反复过冲，存在极限环——需要更精细的控制策略 |
 
@@ -514,7 +539,7 @@ $$H = \max\left(0, 100 - \sum_{k} \min(\text{cap}_k, o_k \cdot \text{coeff}_k)\r
 | 扣分项 | 系数 | 上限 | 观测值 $o_k$ | 设计依据 |
 |--------|------|------|-------------|---------|
 | `ess` | 200 | 40 | 稳态误差（尾 12 slot 均值） | 控制目标本身，权重最重。$e_{ss}=0.20$ 即扣满 |
-| `violations` | 5 | 15 | 契约违约次数 | 协议遵守是硬要求，但单次违约不应主导总分 |
+| `violations` | 5 | 15 | 契约违约率（每 100 助手 turn） | 协议遵守是硬要求，但单次违约不应主导总分。v4 起按话务量归一——原始计数随 turn 数漂移（348-1286/30天），话多的 run 被冤枉 |
 | `xhat_bias` | 80 | 10 | 最大系统性偏差 | 观测器质量：0.125 偏差即扣满——系统性偏移比随机误差更致命 |
 | `user_dup` | 1.5 | 10 | 连续重复台词次数 | 拟人性：台词复读是 LLM 退化的最明显信号 |
 | `clamp_ratio` | 80 | 10 | 状态饱和率 | 世界分辨力：12.5% 饱和率即扣满——饱和区间损失信息 |
@@ -559,6 +584,7 @@ $$H = \max\left(0, 100 - \sum_{k} \min(\text{cap}_k, o_k \cdot \text{coeff}_k)\r
 | 人格学习斜率 > 0.002/天 | warn | "画像越聊越差" |
 | 恢复缓慢（回带 > 6 时段） | info | "恢复缓慢扰动 ×{n}" |
 | 纯聊天 session ≥ 3（≥ 4 turns 无工具） | info | "纯聊天 session ×{n}" |
+| 推荐被明确拒绝比率 > 0.3 且成功安排 ≥ 3 | warn | "推荐被明确拒绝 ×{rejected}/{scheduled}" |
 
 #### 契约（Contract）
 
@@ -617,7 +643,7 @@ Benchmark 对同一配置跑多个 seed（不同角色卡），跨 episode 聚�
 - **均值 $\pm$ CI95**：$n \leq 30$ 用 Student's t-distribution，$n > 30$ 用正态近似 $z=1.96$
 - **verdict_share**：各 verdict 占比
 - **verdict_mode**：最频繁的 verdict（平局时偏向更差的类别——保守原则）
-- **never_settled**：$t_s = \text{None}$ 的 episode 数（单独统计，不与 settling_time 的均值混淆）
+- **never_settled**：$t_s = \text{None}$ 的 episode 数（= 出带后从未回带；v5 起"全程未出带"记 $t_s=0$ 不再计入。单独统计，不与 settling_time 的均值混淆）
 
 实现：`bench/aggregate.py`。
 
@@ -659,9 +685,83 @@ UserSim 的三层解耦天然支持消融实验：
 
 ---
 
-## 8. 实现参考
+## 8. Benchmark 分数（存档综合分）
 
-### 8.1 代码入口与文件清单
+**一个存档 → 一个百分制分数。** 它把本文件前面定义的全部存档指标折算成单一 KPI，
+回答"这个被测 assistant 到底打了多少分"。前端指标栏直接展示公式与逐项扣分明细；
+实现：`evaluator/score.py`，权重配置：`config/system.toml [benchmark]`。
+
+### 8.1 公式
+
+$$B = \max\Big(0,\; 100 - \sum_k \min(\text{cap}_k,\; w_k \cdot x_k)\Big)$$
+
+每个存档指标先归一为**"越大越差"的观测量** $x_k$，乘系数 $w_k$、封顶 $\text{cap}_k$
+后从 100 扣减。观测量的归一规则：
+
+| 观测量 | 来源指标 | 归一规则 |
+|--------|---------|---------|
+| `ess` | $e_{ss}$ | 原值 |
+| `settle_frac` | $t_s$ | 未稳定 = 1.0；已稳定 = $t_s$ / 总天数 |
+| `overshoot` | $M_p$ | 原值 |
+| `iae_daily` | IAE | IAE / 总天数（≈ mean\|e\|，与 run 长短无关才可横向比较） |
+| `variance` | $\sigma^2$ | 原值 |
+| `band_deficit` | $\rho$ | $1 - \rho$ |
+| `est_err` / `est_slope` | $\varepsilon_{\text{final}}$ / $m_{\varepsilon}$ | 原值 / 只计正斜率 |
+| `persona_err` / `coverage_deficit` / `prefs_err` / `f1_deficit` | 画像指标组 | 原值 / $1-$coverage / 原值 / $1-$F1 |
+| `violations` / `no_recover` / `pac_conflict` / `pra_misaligned` | insights 观测量 | 原值（单一数据源：insights.json `stats.score_observations`） |
+
+> **v3 起移出 benchmark 的仿真健康指标**（仍归 health_score，见 §6.2）：`user_dup`
+> （用户 LLM 台词多样性）、`clamp_ratio`（世界饱和分辨力）、`wsc_incoherent`
+> （用户台词情感摆荡）。移除理由：归因混杂——它们度量的是用户 LLM 与世界动力学
+> 的属性而非被测 assistant 能力，且实测同 harness 跨轮漂移数倍（噪声主导）。
+
+### 8.2 设计理由
+
+1. **为什么是扣分制而不是加权平均加分**：存档指标方向不一（$e_{ss}$ 越小越好、$\rho$
+   越大越好、$t_s$ 可能"未稳定"缺失），加分制对缺失值没有自然处理。扣分制先把一切
+   归一为"越大越差"，缺失即满观测——**不作为不能免罚**：不报画像的 assistant
+   （如 stub）按满误差 0.5 扣，否则"什么都不做"反而占便宜。
+2. **为什么每项封顶（cap）**：防止单一病态指标把分数打到 0，抹掉其他维度的区分度。
+   例如 stub 的 $e_{ss}$ 极差，但它的契约违约是 0——cap 让"控制崩了但契约干净"
+   与"控制崩了且契约也崩"仍然可区分。
+3. **为什么是线性系数而非 log/sigmoid**：可解释、可调参。"改 0.01 的 $e_{ss}$ 值
+   多少分"必须能心算（0.01 × 200 = 2 分），非线性变换会把调参变成试错。所有
+   [系数, 上限] 都在 `config/system.toml [benchmark]`，与 [score] 健康分同构。
+4. **权重分配的理由**（三组的封顶总额，v3）：**控制表现 ≈64 分 > 状态估计与画像
+   ≈35 分 > 契约与仿真有效性 ≈30 分（门槛项，单项上限小）**。
+   - 控制表现是主体：benchmark 的存在意义就是测"把用户状态控制在平和带"，
+     $e_{ss}$ 一项上限 30，是全场最重单项；
+   - 估计与画像是第二公理（助手要"理解用户"），但它服务于控制，故次之；
+   - 契约违约与扰动响应是**门槛**而非主体：违约说明 assistant 连协议都守不住，
+     必须重罚（单项上限 15，仅次于 ess）；v3 起，归因混杂的仿真有效性项
+     （user_dup、clamp、一致性——度量的是用户/世界质量）不再从此扣分，
+     全部归 health_score：仿真缺陷应去修仿真，而不是让 assistant 分数被淹没。
+5. **IAE 为什么要除天数**：IAE 是累计总量，30 天 run 天然比 10 天 run 大；
+   归一为 `iae_daily`（≈ mean|e|）后不同天数的存档才可横向比较。
+   `settle_frac` 同理用占比而非绝对天数。
+6. **与 health_score 的分工**：health_score（§6.2）诊断**仿真本身**是否健康
+   （用户复读、状态饱和、一致性占大头，是给仿真维护者的）；benchmark 分给
+   **被测 assistant** 打分（控制与画像占主体，是给模型对比用的）。两者数据源
+   相同（insights 观测量只算一遍，经 `stats.score_observations` 复用），
+   但权重表互相独立，避免"改健康分权重影响模型排名"。
+
+### 8.3 调参与扩展
+
+- 改权重：只动 `config/system.toml [benchmark]`（[系数, 上限] 对），代码默认值与其一致；
+- 加新指标项：在 `evaluator/score.py` 的 `_TERMS` 注册（组、标签、默认权重），
+  并在 `report_observations()` 给出归一规则；前端明细表自动出现新行；
+- 公式版本：report.json `benchmark.version`（当前 **v3**），改归一规则时递增，
+  跨版本分数不可直接比较。**v2 变更**：M3-PRA 的信号源从"用户台词关键词"迁移为
+  "世界裁决后落地的日程事件类目"（§4.4）。**v3 变更**：① 归因混杂的三个仿真健康
+  指标（`user_dup`/`clamp_ratio`/`wsc_incoherent`）移出扣分项（归 health_score）；
+  ② `est_err_final`/`persona_err_final` 从"最后一天单日采样"改为**末端 5 天均值**，
+  抗末端剧情相位噪声（单日恰遇扰动日不再毁掉终值）。
+
+---
+
+## 9. 实现参考
+
+### 9.1 代码入口与文件清单
 
 | 文件 | 职责 |
 |------|------|
@@ -670,12 +770,13 @@ UserSim 的三层解耦天然支持消融实验：
 | `evaluator/insights.py` | 多类目诊断发现 + 健康分 + 摘要生成（509 行） |
 | `evaluator/consistency.py` | 5 项行为一致性指标 M1-M5（904 行） |
 | `evaluator/report.py` | 报告构造：加载 → 计算 → 写入 `report.json` + `insights.json` |
+| `evaluator/score.py` | benchmark 分数：全部存档指标 → 单一百分制（§8；权重在 `[benchmark]`） |
 | `contracts/metrics.py` | 共享误差函数：`dim_error`, `total_error`, `belief_error` |
 | `contracts/persona.py` | 人格词表 + 画像精度函数：`facet_error`, `facet_coverage`, `prefs_error`, `tag_hit_rate` |
 | `bench/aggregate.py` | 跨 episode 统计聚合 + Cohen's d |
-| `config/system.toml` | `[eval]` 阈值 + `[score]` 权重 + `[state]` 目标与 band |
+| `config/system.toml` | `[eval]` 阈值 + `[score]` 权重 + `[benchmark]` 分数权重 + `[state]` 目标与 band |
 
-### 8.2 配置项速查
+### 9.2 配置项速查
 
 所有阈值集中在 `config/system.toml`，改后不必重跑 LLM——直接对历史 `runs/` 重算报告即可：
 
@@ -687,16 +788,22 @@ python -m usersim.evaluator.report runs/<run_id>
 |----|-----|--------|------|
 | `[eval]` | `window_days` | 10 | 滑窗大小 & 带内驻留比窗口 |
 | `[eval]` | `tail_slots_for_ess` | 12 | $e_{ss}$ 采样时段数 |
-| `[eval]` | `settle_band_slots` | 8 | 连续入带要求 |
-| `[eval]` | `converged_ess_max` | 0.030 | 收敛 $e_{ss}$ 上限 |
-| `[eval]` | `converged_settle_max` | 2.5 | 收敛 $t_s$ 上限（天） |
-| `[eval]` | `converged_overshoot_max` | 0.15 | 收敛 $M_p$ 上限 |
+| `[eval]` | `settle_window_days` | 3 | 调节时间滑窗（天）：窗内 in_band ≥ 阈值即稳定（v5 起替换连续入带判定） |
+| `[eval]` | `settle_in_band_ratio` | 0.70 | 滑窗内带内驻留占比阈值（旧 `settle_band_slots=8` 连续判定已下线） |
+| `[eval]` | `converged_ess_max` | 0.060 | 收敛 $e_{ss}$ 上限（v4.1 按 20 个干净 live episode 标定） |
+| `[eval]` | `converged_settle_max` | 5.0 | 收敛 $t_s$ 上限（天；R4 起按 live reference 实测校准，旧值 2.5 为 replay 口径） |
+| `[eval]` | `converged_overshoot_max` | 0.20 | 收敛 $M_p$ 上限（R4 重校准，旧值 0.15 为 replay 口径） |
 | `[eval]` | `diverged_ess_min` | 0.080 | 发散 $e_{ss}$ 下限 |
 | `[state]` | `targets` | {v:0.72, e:0.70, s:0.65, σ:0.30} | 各维度目标值 |
 | `[state]` | `band` | 0.10 | 平和带半宽 |
 | `[score]` | 各扣分项 | 见 §6.3 | 健康分系数与上限 |
+| `[benchmark]` | 各扣分项 | 见 §8 | benchmark 分数系数与上限（被测 assistant 主 KPI） |
 
-### 8.3 扩展指南
+另有硬编码在 `insights.py` 的诊断项：`stats["rec_rejected"]`（推荐被明确拒绝比率——
+`add_event_todo` 成功后用户下一句明确抗拒的占比；阈值 0.3、最小样本 3 次成功安排）
+只产出 findings 告警，不进 benchmark 分数，也不在 `config/system.toml` 配置。
+
+### 9.3 扩展指南
 
 新增指标时：
 1. 指标函数放在 `evaluator/` 下对应文件（控制类 → `metrics.py`，诊断类 → `insights.py`，一致性类 → `consistency.py`）

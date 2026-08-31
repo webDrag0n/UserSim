@@ -131,6 +131,19 @@ def habit_params(name: str, overrides: dict | None = None) -> tuple[float, float
     return HABITUATION_DEFAULTS.get(key, HAB_DEFAULT)
 
 
+def habit_resolve(event_name: str, overrides: dict | None = None) -> str:
+    """事件名 → 习惯化跟踪键：地点部分（" · "后）命中配表键时优先
+    （同一家店连续吃才腻，换店不共 habituation），否则用动作名。"""
+    loc = ""
+    if " · " in event_name:
+        loc = event_name.split(" · ", 1)[1].split("（")[0].strip()
+    base = habit_key(event_name)
+    table = (overrides or {}).get("habituation", {})
+    if loc and (loc in table or loc in HABITUATION_DEFAULTS):
+        return loc
+    return base
+
+
 # ---------------------------------------------------------------
 # 2. 需求动力学
 # ---------------------------------------------------------------

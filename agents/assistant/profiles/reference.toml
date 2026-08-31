@@ -1,0 +1,9 @@
+# 参考 Harness：状态跟踪器 + 日程记忆 + 主动控制（benchmark 参考线）
+# type = package → 导入同级实现包 agents/assistant/reference/，create(client) 构造
+type = "package"
+description = "参考 Harness：确定性状态跟踪 + 日程记忆 + 主动维护控制（benchmark 参考线）"
+prompt_version = "v5.4"
+# impl = "reference"         # 可选：实现包文件夹名（缺省 = 本 profile 名）
+
+# [llm]                      # 可选：覆盖 agents/assistant/config.toml 的 provider 绑定
+# provider = "deepseek"

@@ -101,6 +101,7 @@ class Event(BaseModel):
     caused_by_session_id: str | None = None  # 因果链
     series_id: str | None = None  # 所属系列事件
     note: str = ""
+    replaces_meal: bool = False  # 餐饮场所事件：活跃时段抑制当日模板"三餐"在同 slot 的效果
 
 
 class Series(BaseModel):
@@ -141,6 +142,8 @@ class EventContext(BaseModel):
     assist_prompt: str | None = None  # 助手介入点提示
     schedule_view: list[Event] = []  # 可见日程（未来事件）
     weather: str | None = None  # 当前天气（晴/多云/阴/小雨/暴雨）
+    satiation_note: str | None = None  # 餍足提示：最近重复执行的恢复动作已腻（习惯化权重过低）
+    utility_menu: list[str] = []  # 各恢复活动的边际效用档位（R7，只加不删；语义行，无数值）
 
 
 class SlotSettlement(BaseModel):
@@ -176,6 +179,8 @@ class UserContext(BaseModel):
     schedule_view: list[Event] = []
     dialogue_history: list[TurnRecord] = []
     weather: str | None = None  # 当前天气
+    satiation_note: str | None = None  # 餍足提示（world 裁决，供用户表达"吃腻了"）
+    utility_menu: list[str] = []  # 各活动边际效用档位（R7：用户规划/拒绝重复安排的依据）
 
 
 class UserAction(BaseModel):
@@ -226,6 +231,77 @@ class PersonaBeliefDelta(BaseModel):
     social_recharge: str | None = None
     confidence: float | None = None
     notes: str = ""
+
+
+# ---------------------------------------------------------------
+# 画像增量合并（共享纯函数：agents.ProfileTracker 与 Runner 退化路径同一语义）
+# ---------------------------------------------------------------
+
+# 新证据权重：0.6 表示"以新观察为主，但保留 40% 已有认识"。
+# 偏高是有意的——助手应该敢于修正错误的第一印象（docs/03 的锚定问题）。
+PERSONA_BLEND_NEW = 0.6
+PERSONA_MAX_TAGS = 12  # loves/hates 各自的上限（防止 Harness 无节制堆词刷命中率）
+
+
+def _blend(old: float, new: float, w: float = PERSONA_BLEND_NEW) -> float:
+    return old * (1.0 - w) + new * w
+
+
+def merge_persona_delta(base: PersonaBelief, delta: PersonaBeliefDelta) -> PersonaBelief:
+    """把一轮画像增量合并进累积快照（EMA 吸收新证据），返回新的 PersonaBelief。
+
+    语义与 agents.ProfileTracker.update 完全一致（同一实现来源）：
+    - 未知 facet 键名 / 未知偏好类目静默丢弃（被测件可能瞎编，不能污染信念）；
+    - 数值域裁剪：facet 0-100、category [-1,1]、interruption_tolerance [0,1]；
+    - loves/hates 去重保序、新标签靠前、各截断 PERSONA_MAX_TAGS 条。
+    """
+    facets = dict(base.facets)
+    for key, val in (delta.facets or {}).items():
+        if key not in FACET_KEYS:
+            continue
+        try:
+            v = float(val)
+        except (TypeError, ValueError):
+            continue
+        v = max(0.0, min(100.0, v))
+        facets[key] = int(round(_blend(facets[key], v) if key in facets else v))
+
+    categories = dict(base.categories)
+    for cat, val in (delta.categories or {}).items():
+        if cat not in PREF_CATEGORIES:
+            continue
+        try:
+            v = float(val)
+        except (TypeError, ValueError):
+            continue
+        v = max(-1.0, min(1.0, v))
+        categories[cat] = round(_blend(categories[cat], v) if cat in categories else v, 3)
+
+    def merge_tags(existing: list[str], incoming: list[str]) -> list[str]:
+        out: list[str] = []
+        for tag in list(incoming) + list(existing):
+            t = str(tag).strip()
+            if t and t not in out:
+                out.append(t)
+        return out[:PERSONA_MAX_TAGS]
+
+    interruption = base.interruption_tolerance
+    if delta.interruption_tolerance is not None:
+        v = max(0.0, min(1.0, float(delta.interruption_tolerance)))
+        interruption = round(_blend(interruption, v) if interruption is not None else v, 3)
+
+    return PersonaBelief(
+        facets=facets,
+        categories=categories,
+        loves=merge_tags(base.loves, delta.loves) if delta.loves else list(base.loves),
+        hates=merge_tags(base.hates, delta.hates) if delta.hates else list(base.hates),
+        interruption_tolerance=interruption,
+        planning_style=str(delta.planning_style) if delta.planning_style else base.planning_style,
+        social_recharge=str(delta.social_recharge) if delta.social_recharge else base.social_recharge,
+        confidence=(max(0.0, min(1.0, float(delta.confidence)))
+                    if delta.confidence is not None else base.confidence),
+        notes=str(delta.notes) if delta.notes else base.notes,
+    )
 
 
 class UserBelief(BaseModel):
@@ -314,15 +390,22 @@ class RunMeta(BaseModel):
     seed: int
     started_at: str
     days: int
-    mode: Literal["replay", "live"] = "replay"
-    assistant_quality: str | None = None  # replay 模式的档位
+    # legacy 读取兼容：replay 模式已下线（R4），新 run 只会是 "live"；
+    # 旧存档的 "replay" 仍需能被解析（前端回放/离线 eval 只读不验模式）。
+    mode: Literal["replay", "live"] = "live"
+    assistant_quality: str | None = None  # legacy：已下线的 replay 档位字段
     config_hash: str
     persona: Persona
-    llm_roles: dict = {}  # 各角色 provider/model（不含密钥）
+    llm_roles: dict = {}  # 各角色 provider/model（不含密钥，来自配置）
+    # provider 实际应答的模型版本（滚动别名漂移溯源；demo agent 侧 LLMClient 落盘，
+    # run 结束时由 Runner 合并进来）。形如 {"<provider>/<配置模型>": {"reported": [...]}}
+    llm_reported: dict = {}
     # ---- 可复现性凭证（新增字段均有默认值，旧 run 仍可读）----
     harness: str = "reference"  # 被测 Harness 名（registry 键）
     artifact_hashes: dict = {}  # system/llm/balance/catalog/prompts/combined
     prompt_versions: dict = {}  # 各 agent 的 PROMPT_VERSION
+    profiles: dict = {}  # 各角色选用的 profile：{"user": "standard", "assistant": "openclaw"}
+                         # legacy replay 存档为 {"user": "scripted", "assistant": "scripted:<quality>"}
 
 
 UserContext.model_rebuild()

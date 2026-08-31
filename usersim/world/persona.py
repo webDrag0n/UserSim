@@ -161,28 +161,28 @@ def _generate_prefs(gen: np.random.Generator, profile: dict) -> Preferences:
 
 
 def _build_event_library(prefs, facets: dict, archetype: str) -> list[dict]:
-    """按人格偏好构建个性化事件库（从全局 catalog 筛选 + 自定义）。"""
-    from usersim.world.catalog import get_recovery_actions  # 延迟 import
+    """按人格偏好构建个性化事件库（从地点支持表 flatten 筛选 + 自定义）。"""
+    from usersim.world.catalog import all_variants  # 延迟 import
     library = []
 
-    for action in get_recovery_actions():
+    for action, variant in all_variants():
+        if action.get("id") in ("MEAL", "SLEEP"):
+            continue  # 日常升级档不进用户事件库（与旧版一致）
         action_name = action["action"]
         # 社交内向者降低社交类事件权重（不是完全排除）
         gregarious = facets.get("外向性.群居性", 50)
         if any(k in action_name for k in ("朋友小聚", "应酬", "聚会")) and gregarious < 35:
             continue  # 内向者的主动事件库里没有饭局
 
-        # 添加每个变体
-        for variant in action.get("variants", []):
-            library.append({
-                "name": action_name,
-                "location": variant.get("location", ""),
-                "cost": float(variant.get("cost", 0)),
-                "effect": variant.get("effect", {}),
-                "span": int(variant.get("span", 1)),
-                "vid": variant.get("vid", ""),
-                "tags": [action_name],
-            })
+        library.append({
+            "name": action_name,
+            "location": variant.get("location", ""),
+            "cost": float(variant.get("cost", 0)),
+            "effect": variant.get("effect", {}),
+            "span": int(variant.get("span", 1)),
+            "vid": variant.get("vid", ""),
+            "tags": [action_name],
+        })
 
     return library
 

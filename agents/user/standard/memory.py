@@ -5,6 +5,7 @@ from collections import deque
 INTENT_LABELS = {
     "eat": "吃饭", "social": "社交", "stimulate": "找乐子",
     "recover": "休息", "sleep": "睡觉", "achieve": "做正事",
+    "chat": "闲聊",
     "emergency": "紧急事项",
 }
 
@@ -15,12 +16,13 @@ class UserMemory:
         self._sessions: deque[dict] = deque(maxlen=capacity)
 
     def add(self, session_id: str, intent_type: str, turns: int,
-            outcome: str = "", day: int = 0) -> None:
+            outcome: str = "", day: int = 0, activities: list[str] | None = None) -> None:
         label = INTENT_LABELS.get(intent_type, intent_type)
         self._sessions.append({
             "sid": session_id, "intent": intent_type,
             "label": label, "turns": turns,
             "outcome": outcome, "day": day,
+            "activities": list(activities or []),
         })
 
     def prompt_block(self) -> str:
@@ -30,7 +32,8 @@ class UserMemory:
         lines = []
         for s in list(self._sessions)[-5:]:
             outcome_str = f"，{s['outcome']}" if s['outcome'] else ""
-            lines.append(f"- 第 {s['day']+1} 天：{s['label']}{outcome_str}")
+            act_str = f"：{'、'.join(s['activities'])}" if s.get("activities") else ""
+            lines.append(f"- 第 {s['day']+1} 天：{s['label']}{act_str}{outcome_str}")
         return "【你最近和助手聊过的事】\n" + "\n".join(lines)
 
     def to_dict(self) -> dict:

@@ -3,7 +3,6 @@
 import json
 
 from usersim.config import load_system_config
-from usersim.runner import run_replay
 from usersim.world import World
 
 
@@ -11,26 +10,40 @@ def _cfg():
     return load_system_config()
 
 
-def test_same_seed_same_trajectory(tmp_path):
-    """同 seed 两次规则回放，轨迹逐字节相同。
+def _trajectory(seed: int, days: int = 10) -> list[dict]:
+    """直驱 World 推进完整 episode，返回逐 slot 结算单（含事件流引用）。"""
+    w = World(seed=seed, days=days, cfg=_cfg())
+    out = []
+    while not w.done:
+        s = w.step_slot()
+        d = s.model_dump()
+        # 快照级别的上下文也纳入比对：事件流/天气/需求驱动量都必须确定
+        d["_ctx"] = w.current_context().model_dump()
+        out.append(d)
+    return out
 
-    必须显式指定不同 run_id：默认 run_id 含秒级时间戳，两次快速运行会落到
-    同一目录，导致该断言变成"文件与自己比较"而恒真。
-    """
-    cfg = _cfg()
-    d1 = run_replay(seed=7, days=10, quality="good", cfg=cfg, out_root=tmp_path, run_id="det_a")
-    d2 = run_replay(seed=7, days=10, quality="good", cfg=cfg, out_root=tmp_path, run_id="det_b")
-    assert d1 != d2
-    assert (d1 / "slots.jsonl").read_bytes() == (d2 / "slots.jsonl").read_bytes()
 
-    # turns.jsonl 含 run_id 字段，需归一化后比较其余内容
-    def _norm(p):
-        return [
-            {k: v for k, v in json.loads(line).items() if k != "run_id"}
-            for line in (p / "turns.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()
-        ]
+def test_same_seed_same_trajectory():
+    """同 seed 两次直驱 World，逐 slot 结算单与最终快照完全一致。"""
+    t1 = _trajectory(seed=7)
+    t2 = _trajectory(seed=7)
+    assert json.dumps(t1, sort_keys=True, ensure_ascii=False) == \
+        json.dumps(t2, sort_keys=True, ensure_ascii=False)
 
-    assert _norm(d1) == _norm(d2)
+    # 最终快照（含 RNG 流状态）也必须一致——否则续跑会分叉
+    w1 = World(seed=7, days=10, cfg=_cfg())
+    w2 = World(seed=7, days=10, cfg=_cfg())
+    while not w1.done:
+        w1.step_slot()
+        w2.step_slot()
+    assert json.dumps(w1.to_snapshot(), sort_keys=True, default=str) == \
+        json.dumps(w2.to_snapshot(), sort_keys=True, default=str)
+
+
+def test_different_seed_diverges():
+    """对偶断言：不同 seed 必须产出不同轨迹（防"恒真比较"退化）。"""
+    assert json.dumps(_trajectory(seed=7), sort_keys=True, ensure_ascii=False) != \
+        json.dumps(_trajectory(seed=8), sort_keys=True, ensure_ascii=False)
 
 
 def test_state_always_bounded():

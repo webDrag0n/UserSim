@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { Persona, PersonaBelief, Report, Turn } from '../api'
 import { BIG5_FACETS, PREF_CATEGORIES, cssVar, useThemeVersion } from '../components/theme'
 import { PlainCard as Card } from '../components/ui'
-import { ChartGrid, ThemedXAxis, ThemedYAxis, ThemedTooltip } from '../components/charts'
+import { ChartGrid, ThemedXAxis, ThemedYAxis, ThemedTooltip, useChartAnimation } from '../components/charts'
 import { ComposedChart, Line, ResponsiveContainer } from 'recharts'
 
 /** 真值 vs 估计的双游标条：真值填充，估计用白色游标（与 StateBars 视觉语言一致）。 */
@@ -161,6 +161,7 @@ export function PersonaPanel({ persona, turns, curT, report }: {
   persona?: Persona | null; turns: Turn[]; curT: number; report: Report | null
 }) {
   useThemeVersion()
+  const anim = useChartAnimation()
   const { hat, turnId } = usePersonaHat(turns, curT)
   if (!persona) return <p className="text-sm text-t3">加载角色卡…</p>
   const truth = persona.facets ?? {}
@@ -244,8 +245,8 @@ export function PersonaPanel({ persona, turns, curT, report }: {
                 <ChartGrid />
                 <ThemedXAxis dataKey="day" />
                 <ThemedYAxis domain={[0, 'auto']} />
-                <Line type="monotone" dataKey="err" stroke={cssVar('--series')} strokeWidth={2} dot={false} />
-                <ThemedTooltip />
+                <Line {...anim} type="monotone" dataKey="err" name="画像误差" stroke={cssVar('--series')} strokeWidth={2} dot={false} />
+                <ThemedTooltip labelFormatter={(x: number) => `第 ${Number(x) + 1} 天`} />
               </ComposedChart>
             </ResponsiveContainer>
           </div>

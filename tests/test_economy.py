@@ -49,14 +49,15 @@ def test_debt_stress_penalty():
     assert abs(s.natural_drift["stress"] - 0.03) > 1e-9 or s.natural_drift["stress"] >= 0.03
 
 
-def test_custom_event_capped_and_free():
+def test_unsupported_event_rejected():
     w = _world()
-    # 目录外活动归一化到兜底类目 C0，自报效果无效（世界裁定数值）
+    # 完全目录外的活动（无任何规范类目关键词）= 系统不支持 → 拒绝安排，
+    # 助手应坦诚告知用户"找不到这样的地方"并推荐目录内替代（不再给 C0 兜底效果）
     r = w.add_event_todo("自定义冥想", 0, 1, "放松", {"stress": -0.9, "valence": 0.9})
-    assert r.ok
-    e = r.payload["event"]
-    assert e["cost"] == 0 and e["name"] == "自定义活动"
-    assert e["effect"] == {"valence": 0.06, "stress": -0.05}
+    assert not r.ok
+    assert r.payload.get("unsupported") is True
+    # 自报效果不生效：世界里没有新增任何事件
+    assert not any(e.name == "自定义冥想" for e in w.events)
 
 
 def test_custom_activity_normalized():
