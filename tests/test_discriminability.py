@@ -99,18 +99,63 @@ def test_overlapping_groups_light_separation() -> None:
 
 
 def test_missing_group_yields_none_without_crashing() -> None:
-    """缺任一分组：对应字段为 None、ok=False，且不抛异常。"""
+    """仅差组（无好锚点）：对应字段为 None、ok=False，且不抛异常。
+
+    仅好锚点（无差组）时进入仅阳性对照模式，见 TestPositiveControlOnly。
+    """
     cfg = _eval_cfg()
-    disc = compute(_eps("reference", [0.010, 0.012]), cfg)
-    assert disc["ess_poor_mean"] is None
-    assert disc["margin_poor"] is None
-    assert disc["separation"] is None
+    disc = compute(_eps("stub", [0.12, 0.13]), cfg)
+    assert disc["ess_good_mean"] is None
+    assert disc["margin_good"] is None
     assert disc["ok"] is False
 
-    disc2 = compute(_eps("stub", [0.12, 0.13]), cfg)
-    assert disc2["ess_good_mean"] is None
-    assert disc2["margin_good"] is None
-    assert disc2["ok"] is False
+
+class TestPositiveControlOnly:
+    """仅阳性对照模式（stub 缺席）：reference 自身不健康 = 疑世界侧/管线回归。"""
+
+    def test_healthy_reference_passes(self) -> None:
+        """ess 中位数 ≤ diverged_ess_min 且非全员 diverged → ok。"""
+        cfg = _eval_cfg()
+        episodes = [{"group": "reference",
+                     "metrics": {"ess": v, "verdict": "converged"}}
+                    for v in (0.010, 0.012, 0.011, 0.009)]
+        disc = compute(episodes, cfg)
+        assert disc["mode"] == "positive_control"
+        assert disc["groups"] == {"good": "reference", "poor": None}
+        assert disc["ess_poor_mean"] is None
+        assert disc["margin_poor"] is None
+        assert disc["separation"] is None
+        assert disc["checks"] == {"positive_control_healthy": True}
+        assert disc["check_status"] == {"positive_control": "pass"}
+        assert disc["status"] == "ok" and disc["ok"] is True
+
+    def test_reference_above_diverged_threshold_fails(self) -> None:
+        """reference ess 中位数越过发散阈 → fail（分数不可信）。"""
+        cfg = _eval_cfg()
+        episodes = [{"group": "reference",
+                     "metrics": {"ess": v, "verdict": "oscillating"}}
+                    for v in (0.10, 0.12, 0.11, 0.09)]
+        disc = compute(episodes, cfg)
+        assert disc["checks"]["positive_control_healthy"] is False
+        assert disc["check_status"]["positive_control"] == "fail"
+        assert disc["status"] == "fail" and disc["ok"] is False
+
+    def test_all_diverged_verdicts_fail(self) -> None:
+        """ess 虽低但全部 episode 判 diverged → fail（判定与指标矛盾 = 管线回归）。"""
+        cfg = _eval_cfg()
+        episodes = [{"group": "reference",
+                     "metrics": {"ess": v, "verdict": "diverged"}}
+                    for v in (0.010, 0.012, 0.011)]
+        disc = compute(episodes, cfg)
+        assert disc["all_diverged"] is True
+        assert disc["ok"] is False and disc["status"] == "fail"
+
+    def test_verdict_missing_does_not_count_as_diverged(self) -> None:
+        """metrics 无 verdict 字段（旧记录）不误判为全员 diverged。"""
+        cfg = _eval_cfg()
+        disc = compute(_eps("reference", [0.010, 0.012]), cfg)
+        assert disc["all_diverged"] is False
+        assert disc["ok"] is True
 
 
 def test_custom_group_names_and_none_ess_skipped() -> None:

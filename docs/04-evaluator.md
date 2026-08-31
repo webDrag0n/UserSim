@@ -1,6 +1,6 @@
 # 04 · 评估器（Evaluator）
 
-> ⚠️ 注：replay 模式已于 R4 下线（量程守护迁移至 live 锚点对 reference vs stub），文中 replay/脚本三档内容为历史记录。
+> ⚠️ 注：replay 模式已于 R4 下线（已知组效度检验 known-groups validity 迁移至 live 对照组 reference vs stub），文中 replay/脚本三档内容为历史记录。
 
 状态: 草稿
 
@@ -74,11 +74,11 @@ felt_state（语义化感受）→ 用户台词 → 助手 x̂ → 助手工具�
 
 实现：`contracts/models.py` `StateVec`（pydantic, 带 `[0,1]` 边界校验）。
 
-### 2.2 目标设定点与平和带
+### 2.2 目标设定点与设定点容差带（setpoint tolerance band）
 
 来自 `config/system.toml [state]`：
 
-$$\mathbf{x}^* = \begin{bmatrix} v^* = 0.72 \\ e^* = 0.70 \\ s^* = 0.65 \\ \sigma^* = 0.30 \end{bmatrix}, \quad \beta = 0.10 \text{（平和带半宽）}$$
+$$\mathbf{x}^* = \begin{bmatrix} v^* = 0.72 \\ e^* = 0.70 \\ s^* = 0.65 \\ \sigma^* = 0.30 \end{bmatrix}, \quad \beta = 0.10 \text{（容差带半宽）}$$
 
 ### 2.3 逐维单侧误差
 
@@ -90,7 +90,7 @@ $$e_d(\mathbf{x}) = \begin{cases} \max(0, x_d - x_d^*) & \text{if } d = \text{st
 
 $$e(\mathbf{x}) = \frac{1}{4} \sum_{d} e_d(\mathbf{x})$$
 
-**平和带判定**：$\mathbf{x}$ 处于平和带内 $\iff \forall d: e_d(\mathbf{x}) \leq \beta$。
+**容差带判定**：$\mathbf{x}$ 处于容差带内 $\iff \forall d: e_d(\mathbf{x}) \leq \beta$。
 
 实现：`contracts/metrics.py` `dim_error()` / `total_error()`。
 
@@ -153,7 +153,7 @@ $$v_{\text{after}} - v_{\text{before}} < -0.05 \quad \text{触发 info}$$
 
 ---
 
-## 4. Layer 2：用户 Agent 质量（Reward 信号可信度门）
+## 4. Layer 2：用户 Agent 质量（操纵检验 / manipulation check）
 
 ### 4.1 为什么用户 Agent 需要独立评估
 
@@ -162,7 +162,7 @@ UserSim 的 benchmark 有效性依赖于一个前提：**用户 Agent 忠实地�
 - 助手估计用户偏好的"真值"就被污染了（用户自己没按偏好行事）
 - 控制效果的评估就失去了意义（用户不抗拒讨厌的事 → 助手不需要精准理解用户也能"成功"）
 
-因此，Layer 2 是 **Layer 3 的质量门**：如果 Layer 2 指标大面积报警，Layer 3 的结果不可信。
+因此，Layer 2 是 **Layer 3 的操纵检验（manipulation check）**：如果 Layer 2 指标大面积报警，Layer 3 的结果不可信。M1-M5 仍全部计算落盘，但 benchmark 分数（§8，v4 起）不再从中扣分——它们度量的是用户模拟器保真度而非被测 assistant 能力。
 
 5 项一致性指标（M1-M5）实现于 `evaluator/consistency.py`（904 行，纯关键词匹配，0 LLM）。
 
@@ -344,7 +344,7 @@ $$t_s = \frac{i^* - d_0}{\text{spd}} \quad \text{[天]}$$
 
 （v5 起改为**窗口驻留判定**：旧版要求连续 8 个时段全部在带——日内正常摆幅会永久打断连续计数，控制良好的 run 也永远"未稳定"。滑窗参数：`[eval] settle_window_days=3`、`settle_in_band_ratio=0.70`。）
 
-边界语义：**全程从未冲出带外**（$d_0$ 不存在）记 $t_s = 0$——从未失控即是从起点就稳定；**冲出带外但到运行结束都没有任何完整滑窗达标**才记 $t_s = \text{None}$（从未回带）。
+边界语义：**全程从未冲出带外**（$d_0$ 不存在）记 $t_s = 0$——从未失控即是从起点就稳定；**冲出带外但到运行结束都没有任何完整滑窗达标**才记 $t_s = \text{None}$（从未回归带内，never settled）。
 
 **回答的问题**：系统受到扰动后，多久能恢复？
 
@@ -490,7 +490,7 @@ $$\text{prefs\_tag\_f1} = \frac{\text{F1}_{\text{loves}} + \text{F1}_{\text{hate
 | 高压无恢复日 | 日均 stress > 0.55 且无恢复安排 $\geq 3$ 天 | warn | 干预缺失——压力高时应有更强的主动建议 |
 | 纯聊天 Session | 无工具调用的多轮 session（$\geq 4$ turns）$\geq 3$ 个 | info | 只安慰不解决——鼓励助手在共情后落到具体安排 |
 | Session 内估计恶化 | session 内 belief_err $\uparrow > 0.05$ 出现 $\geq 2$ 次 | warn | 对话深入后估计反而变差——新信息在带偏估计器而非改善它 |
-| 恢复缓慢 | 扰动后回带时间 > 6 时段 | info | 恢复强度不足（选档太低）或恢复时机过晚 |
+| 恢复缓慢 | 扰动后回归带内时间 > 6 时段 | info | 恢复强度不足（选档太低）或恢复时机过晚 |
 | 工具预算被拒 | `add_event_todo` 因余额不足失败 | info | 正常的经纪博弈信号；高频出现则教助手先查余额 |
 | 日程冲突 | 同一时段重复安排事件 | warn | 助手不看已有日程就写——应先 `view_event_todos` |
 | 推荐被明确拒绝 | `add_event_todo` 成功后用户下一句为明确抗拒的比率 > 0.3（且成功安排 ≥ 3 次） | warn | 推荐与用户需求/偏好不匹配——应利用画像信念推荐（偏好类目/loves），并尊重用户的餍足反馈（`insights.py` `stats["rec_rejected"]`，只进 findings，不进 benchmark 分数） |
@@ -518,7 +518,7 @@ $$\text{prefs\_tag\_f1} = \frac{\text{F1}_{\text{loves}} + \text{F1}_{\text{hate
 
 | Verdict | 条件 | 含义 |
 |---------|------|------|
-| **converged** | $e_{ss} \leq 0.030$ **且** $t_s \neq \text{None}$ **且** $t_s \leq 5.0$ 天 **且** $M_p < 0.20$ | 系统最终收敛到平和带，恢复速度合理，无过冲 |
+| **converged** | $e_{ss} \leq 0.030$ **且** $t_s \neq \text{None}$ **且** $t_s \leq 5.0$ 天 **且** $M_p < 0.20$ | 系统最终收敛到容差带，恢复速度合理，无过冲 |
 | **diverged** | worsening **或** $e_{ss} > 0.080$ | 系统在恶化（后 5 天均值 > 前 5 天 × 1.5 + 0.02），或稳态误差过大 |
 | **oscillating** | 以上皆非 | 能回稳但反复过冲，存在极限环——需要更精细的控制策略 |
 
@@ -582,7 +582,7 @@ $$H = \max\left(0, 100 - \sum_{k} \min(\text{cap}_k, o_k \cdot \text{coeff}_k)\r
 | 人格覆盖率 < 0.4 | warn | "人格画像覆盖率仅 {cov:.0%}" |
 | 人格误差 > 0.25 | warn | "人格估计偏差 {err:.2f}" |
 | 人格学习斜率 > 0.002/天 | warn | "画像越聊越差" |
-| 恢复缓慢（回带 > 6 时段） | info | "恢复缓慢扰动 ×{n}" |
+| 恢复缓慢（回归带内 > 6 时段） | info | "恢复缓慢扰动 ×{n}" |
 | 纯聊天 session ≥ 3（≥ 4 turns 无工具） | info | "纯聊天 session ×{n}" |
 | 推荐被明确拒绝比率 > 0.3 且成功安排 ≥ 3 | warn | "推荐被明确拒绝 ×{rejected}/{scheduled}" |
 
@@ -629,7 +629,7 @@ $$H = \max\left(0, 100 - \sum_{k} \min(\text{cap}_k, o_k \cdot \text{coeff}_k)\r
 
 1. **看 health_score**：快速判断整体质量（90+ = 优秀，70-90 = 良好，50-70 = 有问题，<50 = 严重问题）
 2. **看 verdict**：converged → 控制成功；oscillating → 深入看 IAE/ISE 和 oscillating 的模式；diverged → 优先排查
-3. **看 Layer 2 报警**：如果 M1-M5 有 error，先修用户 Agent 再评估助手（Layer 3 结果暂时不可信）
+3. **看 Layer 2 操纵检验**：如果 M1-M5 有 error，先修用户 Agent 再评估助手（Layer 3 结果暂时不可信）
 4. **看 Layer 3 控制指标**：$e_{ss}$ 和 $t_s$——最终收敛了吗？恢复快吗？
 5. **看 Layer 3 估计学习曲线**：$\varepsilon_{\text{final}}$ 和 $m_{\varepsilon}$——助手懂用户吗？越来越懂还是越来越差？
 6. **看 Layer 3 画像学习曲线**：$e_{\text{persona}}$ 和 $m_{\text{persona}}$——助手了解用户的人格和喜好吗？
@@ -643,13 +643,13 @@ Benchmark 对同一配置跑多个 seed（不同角色卡），跨 episode 聚�
 - **均值 $\pm$ CI95**：$n \leq 30$ 用 Student's t-distribution，$n > 30$ 用正态近似 $z=1.96$
 - **verdict_share**：各 verdict 占比
 - **verdict_mode**：最频繁的 verdict（平局时偏向更差的类别——保守原则）
-- **never_settled**：$t_s = \text{None}$ 的 episode 数（= 出带后从未回带；v5 起"全程未出带"记 $t_s=0$ 不再计入。单独统计，不与 settling_time 的均值混淆）
+- **never_settled**：$t_s = \text{None}$ 的 episode 数（= 出带后从未回归带内；v5 起"全程未出带"记 $t_s=0$ 不再计入。单独统计，不与 settling_time 的均值混淆）
 
 实现：`bench/aggregate.py`。
 
-### 7.3 量程守护与判别力验证
+### 7.3 已知组效度检验与判别力验证
 
-**量程守护（Range Guard）**：验证 benchmark 本身是否能区分 good 与 poor 两种助手质量。
+**已知组效度检验（known-groups validity）**：验证 benchmark 本身是否能区分 good 与 poor 两种助手质量（以 reference 为阳性对照、stub 为阴性对照）。
 
 对两组跑多 seed，检查：
 
@@ -657,7 +657,7 @@ $$\text{Cohen's } d = \frac{\bar{x}_{\text{poor}} - \bar{x}_{\text{good}}}{s_{\t
 
 **要求**：$d \geq 0.8$（large effect），且两组 IAE 的 95% CI 不重叠。
 
-如果量程守护失败（good 和 poor 区分不开），benchmark 本身缺乏判别力——此时跨模型对比也没有意义。
+如果已知组效度检验失败（good 和 poor 区分不开），benchmark 本身缺乏判别力——此时跨模型对比也没有意义。
 
 ### 7.4 消融实验设计指南
 
@@ -676,7 +676,7 @@ UserSim 的三层解耦天然支持消融实验：
 
 | 模块 | 内容 |
 |------|------|
-| **量程守护** | Cohen's d, good/poor 的 IAE CI 范围，判别力 PASS/FAIL |
+| **已知组效度检验** | Cohen's d, good/poor 的 IAE CI 范围，判别力 PASS/FAIL |
 | **控制能力对比** | 各模型的 $e_{ss}$、$t_s$、IAE、$\rho$（均值 $\pm$ CI95），verdict 分布 |
 | **估计能力对比** | $\varepsilon_{\text{final}}$、$m_{\varepsilon}$、偏差维度 |
 | **画像学习对比** | $e_{\text{persona}}$、coverage、$m_{\text{persona}}$、$e_{\text{prefs}}$ |
@@ -687,28 +687,27 @@ UserSim 的三层解耦天然支持消融实验：
 
 ## 8. Benchmark 分数（存档综合分）
 
-**一个存档 → 一个百分制分数。** 它把本文件前面定义的全部存档指标折算成单一 KPI，
+**一个存档 → 一个百分制分数。** 它把存档的控制与画像指标折算成单一 KPI，
 回答"这个被测 assistant 到底打了多少分"。前端指标栏直接展示公式与逐项扣分明细；
 实现：`evaluator/score.py`，权重配置：`config/system.toml [benchmark]`。
 
-### 8.1 公式
+### 8.1 公式（v4）
 
-$$B = \max\Big(0,\; 100 - \sum_k \min(\text{cap}_k,\; w_k \cdot x_k)\Big)$$
+$$B = \max\Big(0,\; 100 - \min(40,\; 200 \cdot \text{ess}) - \min\big(30,\; 30 \cdot (1 - \text{in\_band\_ratio})\big) - \min\big(30,\; 30 \cdot (1 - \text{persona\_coverage})\big)\Big)$$
 
-每个存档指标先归一为**"越大越差"的观测量** $x_k$，乘系数 $w_k$、封顶 $\text{cap}_k$
-后从 100 扣减。观测量的归一规则：
+v4 起从 16 个扣分项精简为 **3 个扣分项**，每项归一为"越大越差"的观测量，乘系数、
+封顶后从 100 扣减：
 
-| 观测量 | 来源指标 | 归一规则 |
-|--------|---------|---------|
-| `ess` | $e_{ss}$ | 原值 |
-| `settle_frac` | $t_s$ | 未稳定 = 1.0；已稳定 = $t_s$ / 总天数 |
-| `overshoot` | $M_p$ | 原值 |
-| `iae_daily` | IAE | IAE / 总天数（≈ mean\|e\|，与 run 长短无关才可横向比较） |
-| `variance` | $\sigma^2$ | 原值 |
-| `band_deficit` | $\rho$ | $1 - \rho$ |
-| `est_err` / `est_slope` | $\varepsilon_{\text{final}}$ / $m_{\varepsilon}$ | 原值 / 只计正斜率 |
-| `persona_err` / `coverage_deficit` / `prefs_err` / `f1_deficit` | 画像指标组 | 原值 / $1-$coverage / 原值 / $1-$F1 |
-| `violations` / `no_recover` / `pac_conflict` / `pra_misaligned` | insights 观测量 | 原值（单一数据源：insights.json `stats.score_observations`） |
+| 扣分项 | 系数 | 上限 | 观测量 | 含义 |
+|--------|------|------|--------|------|
+| `ess` | 200 | 40 | 稳态误差（尾 12 slot 均值） | 控制精度：$e_{ss}=0.20$ 即扣满 |
+| `in_band_ratio` | 30 | 30 | $1 - \rho$（带外时间占比） | 带内驻留：全程出带即扣满 |
+| `persona_coverage` | 30 | 30 | $1 -$ coverage（画像覆盖缺口） | 画像学习：从未估计即扣满 |
+
+总扣分上限 100，分数最低为 0。被移除的指标（`iae`/`ise`/`itae`/`variance`/
+`settle_frac`/`overshoot`/`est_err`/`est_slope`/`persona_err`/`prefs_err`/`f1`/
+`violations`/`no_recover`/`pac_conflict`/`pra_misaligned`）仍全部计算落盘，
+作为诊断与操纵检验报告项（§4、§6.4），不再从 benchmark 扣分。
 
 > **v3 起移出 benchmark 的仿真健康指标**（仍归 health_score，见 §6.2）：`user_dup`
 > （用户 LLM 台词多样性）、`clamp_ratio`（世界饱和分辨力）、`wsc_incoherent`
@@ -718,44 +717,58 @@ $$B = \max\Big(0,\; 100 - \sum_k \min(\text{cap}_k,\; w_k \cdot x_k)\Big)$$
 ### 8.2 设计理由
 
 1. **为什么是扣分制而不是加权平均加分**：存档指标方向不一（$e_{ss}$ 越小越好、$\rho$
-   越大越好、$t_s$ 可能"未稳定"缺失），加分制对缺失值没有自然处理。扣分制先把一切
+   与 coverage 越大越好），加分制对缺失值没有自然处理。扣分制先把一切
    归一为"越大越差"，缺失即满观测——**不作为不能免罚**：不报画像的 assistant
-   （如 stub）按满误差 0.5 扣，否则"什么都不做"反而占便宜。
+   （如 stub）persona_coverage = 0 直接扣满 30 分，否则"什么都不做"反而占便宜。
 2. **为什么每项封顶（cap）**：防止单一病态指标把分数打到 0，抹掉其他维度的区分度。
-   例如 stub 的 $e_{ss}$ 极差，但它的契约违约是 0——cap 让"控制崩了但契约干净"
-   与"控制崩了且契约也崩"仍然可区分。
+   例如 stub 的 $e_{ss}$ 极差——cap 让"控制崩了但画像仍有所覆盖"与"控制与画像
+   全面崩坏"仍然可区分。
 3. **为什么是线性系数而非 log/sigmoid**：可解释、可调参。"改 0.01 的 $e_{ss}$ 值
    多少分"必须能心算（0.01 × 200 = 2 分），非线性变换会把调参变成试错。所有
    [系数, 上限] 都在 `config/system.toml [benchmark]`，与 [score] 健康分同构。
-4. **权重分配的理由**（三组的封顶总额，v3）：**控制表现 ≈64 分 > 状态估计与画像
-   ≈35 分 > 契约与仿真有效性 ≈30 分（门槛项，单项上限小）**。
-   - 控制表现是主体：benchmark 的存在意义就是测"把用户状态控制在平和带"，
-     $e_{ss}$ 一项上限 30，是全场最重单项；
-   - 估计与画像是第二公理（助手要"理解用户"），但它服务于控制，故次之；
-   - 契约违约与扰动响应是**门槛**而非主体：违约说明 assistant 连协议都守不住，
-     必须重罚（单项上限 15，仅次于 ess）；v3 起，归因混杂的仿真有效性项
-     （user_dup、clamp、一致性——度量的是用户/世界质量）不再从此扣分，
-     全部归 health_score：仿真缺陷应去修仿真，而不是让 assistant 分数被淹没。
-5. **IAE 为什么要除天数**：IAE 是累计总量，30 天 run 天然比 10 天 run 大；
+4. **权重分配的理由**（v4 三项的封顶总额）：**控制精度 40 分 > 带内驻留 30 分 = 画像覆盖 30 分**。
+   - 控制表现是主体：benchmark 的存在意义就是测"把用户状态控制在容差带内"，
+     $e_{ss}$ 一项上限 40，是全场最重单项；
+   - 带内驻留（in_band_ratio）与控制精度互补：ess 只看尾部窗口，驻留比看全程；
+   - 画像覆盖是第二公理（助手要"理解用户"）的最低门槛——先要求"去估计"，
+     精度类指标因无区分力（见第 7 条）不再单独扣分；
+   - v3 起，归因混杂的仿真有效性项（user_dup、clamp、一致性——度量的是
+     用户/世界质量）不再从此扣分，全部归 health_score：仿真缺陷应去修仿真，
+     而不是让 assistant 分数被淹没。v4 沿用同一归因原则。
+5. **（v1–v3 历史）IAE 为什么要除天数**：IAE 是累计总量，30 天 run 天然比 10 天 run 大；
    归一为 `iae_daily`（≈ mean|e|）后不同天数的存档才可横向比较。
-   `settle_frac` 同理用占比而非绝对天数。
+   `settle_frac` 同理用占比而非绝对天数。v4 起这两项已移出扣分项，本条保留作历史说明。
 6. **与 health_score 的分工**：health_score（§6.2）诊断**仿真本身**是否健康
    （用户复读、状态饱和、一致性占大头，是给仿真维护者的）；benchmark 分给
    **被测 assistant** 打分（控制与画像占主体，是给模型对比用的）。两者数据源
    相同（insights 观测量只算一遍，经 `stats.score_observations` 复用），
    但权重表互相独立，避免"改健康分权重影响模型排名"。
+7. **v4 为什么精简到三项（区分度分析）**：对历史 bench 数据（pooled 47 episodes）
+   做指标与模型强弱的相关分析，只有这三项与模型强弱显著相关：`persona_coverage`
+   Spearman ρ=0.89、`in_band_ratio` ρ=0.59、`ess` ρ=-0.50。被移除项的原因：
+   - `iae`/`ise`/`itae`/`variance`：与 `ess` 冗余且跨 bench 不稳定（CV 0.5-0.7）；
+   - `settle_frac`：跨 bench 不稳定（CV 0.90）；
+   - `overshoot`：反向混杂（方向与能力强弱不一致）；
+   - `est_err`/`persona_err`/`prefs_err`/`f1`：无区分力，或是 coverage 的重复计分；
+   - `violations`：实测恒 0；
+   - `pac_conflict`/`pra_misaligned`：度量用户模拟器保真度而非被测件能力，
+     转为操纵检验报告项（§4，仍计算落盘）。
+   `health_score`（诊断仿真健康，§6.2）保持不变。
 
 ### 8.3 调参与扩展
 
 - 改权重：只动 `config/system.toml [benchmark]`（[系数, 上限] 对），代码默认值与其一致；
 - 加新指标项：在 `evaluator/score.py` 的 `_TERMS` 注册（组、标签、默认权重），
   并在 `report_observations()` 给出归一规则；前端明细表自动出现新行；
-- 公式版本：report.json `benchmark.version`（当前 **v3**），改归一规则时递增，
+- 公式版本：report.json `benchmark.version`（当前 **v4**），改归一规则时递增，
   跨版本分数不可直接比较。**v2 变更**：M3-PRA 的信号源从"用户台词关键词"迁移为
   "世界裁决后落地的日程事件类目"（§4.4）。**v3 变更**：① 归因混杂的三个仿真健康
   指标（`user_dup`/`clamp_ratio`/`wsc_incoherent`）移出扣分项（归 health_score）；
   ② `est_err_final`/`persona_err_final` 从"最后一天单日采样"改为**末端 5 天均值**，
-  抗末端剧情相位噪声（单日恰遇扰动日不再毁掉终值）。
+  抗末端剧情相位噪声（单日恰遇扰动日不再毁掉终值）。**v4 变更**：扣分项从 16 个
+  精简为 3 个（`ess`/`in_band_ratio`/`persona_coverage`，公式见 §8.1），依据
+  pooled 47 episodes 的区分度分析（§8.2 第 7 条）；`pac_conflict`/`pra_misaligned`
+  转为操纵检验报告项；被移除指标仍全部落盘供诊断。
 
 ---
 
@@ -795,7 +808,7 @@ python -m usersim.evaluator.report runs/<run_id>
 | `[eval]` | `converged_overshoot_max` | 0.20 | 收敛 $M_p$ 上限（R4 重校准，旧值 0.15 为 replay 口径） |
 | `[eval]` | `diverged_ess_min` | 0.080 | 发散 $e_{ss}$ 下限 |
 | `[state]` | `targets` | {v:0.72, e:0.70, s:0.65, σ:0.30} | 各维度目标值 |
-| `[state]` | `band` | 0.10 | 平和带半宽 |
+| `[state]` | `band` | 0.10 | 容差带半宽 |
 | `[score]` | 各扣分项 | 见 §6.3 | 健康分系数与上限 |
 | `[benchmark]` | 各扣分项 | 见 §8 | benchmark 分数系数与上限（被测 assistant 主 KPI） |
 

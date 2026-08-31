@@ -1,13 +1,16 @@
 """批量 episode 执行器（组装点：允许 import world/agents/evaluator）。
 
 replay 模式已下线：批量只跑 live（真实 LLM），按预算限制 episode 数。
-episode 按 concurrency 并发执行（线程池）；provider 限流由 chat_json 的
-指数退避重试兜底。断点续跑：run 目录下已有 report.json 的 episode 直接
-复用存档重评估，不重复烧 token。
+episode 默认全并发（未显式指定 concurrency 时 = 本次全部组合数，线程池
+同时启动）；provider 侧由 llm/client.py 的进程级信号量按 llm.toml
+[runtime].concurrency 限流，chat_json 的指数退避重试兜底。
+断点续跑：run 目录下已有 report.json 的 episode 直接复用存档重评估，
+不重复烧 token。
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -18,7 +21,7 @@ from pathlib import Path
 from usersim.bench.aggregate import METRIC_KEYS
 from usersim.bench.aggregate import aggregate as aggregate_episodes
 from usersim.bench.discriminability import compute as compute_discriminability
-from usersim.config import PROJECT_ROOT, artifact_hashes, load_llm_runtime, load_system_config
+from usersim.config import PROJECT_ROOT, artifact_hashes, load_system_config
 from usersim.evaluator.report import evaluate_run
 
 # live 批量硬上限（防止一条命令烧掉大量 token）
@@ -26,7 +29,8 @@ LIVE_EPISODE_HARD_CAP = 20
 # 单 episode 的粗略 token 估算（10 天 live 实测量级，用于成本提示）
 TOKENS_PER_DAY_ESTIMATE = 12_000
 
-# 量程守护锚点对：groups 同时含这两个 harness 时自动计算分辨力
+# 量程守护锚点：groups 含 reference（好锚点/阳性对照）即自动计算分辨力；
+# 同时含 stub（失能下界）时走全套锚点对校验，否则仅阳性对照校验
 GUARD_GOOD_GROUP = "reference"
 GUARD_POOR_GROUP = "stub"
 
@@ -51,7 +55,7 @@ class BenchSpec:
     days: int
     groups: list[str]                       # harness 名列表
     archetypes: list[str | None] = field(default_factory=lambda: [None])
-    concurrency: int = 4                    # episode 并发数（线程池）
+    concurrency: int | None = None        # episode 并发数；None = 全部组合同时启动
 
     def episodes(self) -> list[EpisodeSpec]:
         out: list[EpisodeSpec] = []
@@ -97,6 +101,39 @@ def _run_one(spec: EpisodeSpec, out_root_str: str) -> dict:
 
 def estimate_tokens(spec: BenchSpec) -> int:
     return len(spec.episodes()) * spec.days * TOKENS_PER_DAY_ESTIMATE
+
+
+def check_turns_integrity(episodes: list[dict], runs_root: Path) -> dict:
+    """跨组 turns.jsonl 哈希比对：不同组 episode 逐字节相同 = 输出被复制的回归信号。
+
+    真实事故：nomem 与 pro 两组 116 条 turn 逐字节相同。对 ok 的 episode 算
+    turns.jsonl 的 sha256，按哈希分组，同一哈希跨组出现即记 duplicates。
+    turns.jsonl 缺失的 episode 跳过并记 note。
+    """
+    by_hash: dict[str, list[dict]] = {}
+    notes: list[str] = []
+    for ep in episodes:
+        run_id = ep.get("run_id")
+        path = (runs_root / run_id / "turns.jsonl") if run_id else None
+        if path is None or not path.exists():
+            notes.append(f"{ep.get('label', run_id)}: turns.jsonl 缺失，跳过完整性比对")
+            continue
+        h = hashlib.sha256(path.read_bytes()).hexdigest()
+        by_hash.setdefault(h, []).append(ep)
+    duplicates: list[dict] = []
+    for eps in by_hash.values():
+        eps = sorted(eps, key=lambda e: (e["group"], e["seed"]))
+        for i, a in enumerate(eps):
+            for b in eps[i + 1:]:
+                if a["group"] != b["group"]:
+                    duplicates.append({"group_a": a["group"], "seed_a": a["seed"],
+                                       "group_b": b["group"], "seed_b": b["seed"]})
+    out: dict = {"ok": not duplicates}
+    if duplicates:
+        out["duplicates"] = duplicates
+    if notes:
+        out["notes"] = notes
+    return out
 
 
 def run_suite(spec: BenchSpec, out_root: Path | None = None,
@@ -147,11 +184,12 @@ def run_suite(spec: BenchSpec, out_root: Path | None = None,
                     break
 
     # episode 并发：broker 按 (run_id, role) 键控且带锁，server 原生支持多 run
-    # 并行；provider 限流由 chat_json 指数退避重试兜底（429/网络错重试 3 次）。
+    # 并行；未显式指定时默认全并发（全部组合同时启动），LLM 侧由 llm/client.py
+    # 进程级信号量按 llm.toml [runtime].concurrency 限流，指数退避重试兜底。
     # episodes.jsonl 逐条落盘（写锁保护）：批量跑十几小时，攒到最后才写 =
     # 中途崩溃全丢；单 episode 失败记 error 条目继续跑，不拖死整批。
     write_lock = threading.Lock()
-    workers = max(1, spec.concurrency)
+    workers = max(1, spec.concurrency or len(episodes))
     done = len(results)
 
     def _guarded(ep: EpisodeSpec) -> dict:
@@ -187,12 +225,13 @@ def run_suite(spec: BenchSpec, out_root: Path | None = None,
     aggregated["seeds"] = spec.seeds
     aggregated["artifact_hashes"] = artifact_hashes()
     aggregated["failed_episodes"] = len(results) - len(ok_results)
+    aggregated["integrity"] = check_turns_integrity(ok_results, bench_dir / "runs")
 
     (bench_dir / "aggregate.json").write_text(
         json.dumps(aggregated, ensure_ascii=False, indent=2), encoding="utf-8")
 
     disc = None
-    if {GUARD_GOOD_GROUP, GUARD_POOR_GROUP} <= set(spec.groups):
+    if GUARD_GOOD_GROUP in set(spec.groups):
         disc = compute_discriminability(ok_results, cfg.eval,
                                         good_group=GUARD_GOOD_GROUP,
                                         poor_group=GUARD_POOR_GROUP)
@@ -201,10 +240,3 @@ def run_suite(spec: BenchSpec, out_root: Path | None = None,
 
     return {"bench_id": bench_id, "bench_dir": str(bench_dir),
             "aggregate": aggregated, "discriminability": disc, "episodes": results}
-
-
-def default_concurrency() -> int:
-    try:
-        return int(load_llm_runtime().get("concurrency", 4))
-    except Exception:  # noqa: BLE001 — 配置缺失时退回默认
-        return 4

@@ -109,7 +109,7 @@ model    = "deepseek-chat"
 | `config/system.toml` | 时钟、状态动力学、设定点、评估阈值、服务端口 |
 | `balance-sheet/UserSim数值配表.xlsx` | 事件、需求、习惯化的数值配表（Web 配表编辑器的数据源） |
 
-`system.toml` 关键段：`[run]`（seed/天数/输出目录）、`[clock]`（每天时段数）、`[state]`（四维设定点 + 平和带半宽）、`[dynamics]`（动力学系数）、`[score]`（健康分权重）。
+`system.toml` 关键段：`[run]`（seed/天数/输出目录）、`[clock]`（每天时段数）、`[state]`（四维设定点 + 容差带半宽）、`[dynamics]`（动力学系数）、`[score]`（健康分权重）。
 
 ---
 
@@ -137,7 +137,7 @@ python -m usersim run --days 30
 # 3. 多 seed 批量统计
 python -m usersim bench --groups reference --seeds 1-8 --max-episodes 8
 
-# 4. Web「批量评测」看均值 ± CI 与量程守护
+# 4. Web「批量评测」看均值 ± CI 与已知组效度检验
 ./start.sh
 ```
 
@@ -189,8 +189,8 @@ python -m usersim bench --groups reference,stub --seeds 1-8 --days 30 --max-epis
 不计）。已有 `report.json` 的 episode 断点续跑自动跳过（重评估不重复烧 token），
 `--bench-id` 复用目录合并多批结果。也可在前端「批量评测」页填参数组合一键启动，
 页面实时显示总进度与每个 episode 的天数进度。
-输出多 seed 均值 ± 95% CI、判定众数；`--groups` 同时含 reference 与 stub 时产出量程守护
-断言（好锚点 reference 需落在收敛一侧、失能下界 stub 需落在发散一侧，详见
+输出多 seed 均值 ± 95% CI、判定众数；`--groups` 同时含 reference 与 stub 时产出已知组效度检验
+断言（阳性对照 reference 需落在收敛一侧、阴性对照 stub 需落在发散一侧，详见
 [12-benchmark](12-benchmark.md) 第 4 节）。
 
 ### `eval` — 离线重算指标
@@ -234,7 +234,7 @@ python -m usersim.agents assistant --server http://127.0.0.1:8610 --harness refe
 pytest -q            # 全部测试（0 token：纯函数 / 合成 fixture / World 直驱）
 ```
 
-量程守护的实测（reference vs stub × 多 seed）是手动 live 流程——烧 token、不进 CI，
+已知组效度检验的实测（reference vs stub × 多 seed）是手动 live 流程——烧 token、不进 CI，
 见 [12-benchmark](12-benchmark.md) 第 4 节。
 
 测试分层：`tests/world`（确定性）、`tests/evaluator`（指标对拍）、`tests/contracts`（schema 向后兼容）、`tests/test_dependency_rules.py`（依赖边界静态扫描）。
@@ -273,6 +273,6 @@ pytest -q            # 全部测试（0 token：纯函数 / 合成 fixture / Wor
 | 08 | [event-catalog](08-event-catalog.md) | 事件配表（事件表 + 统一地点表）与经济系统 | 已实现 |
 | 09 | [series-events](09-series-events.md) | 系列事件（旅行/出差/休假/备考）：行程单物化、后效 | 已实现 |
 | 11 | [anthropomorphism](11-anthropomorphism.md) | 习惯化曲线、需求动力学、人格调节、Excel 单一数据源 | 已实现 |
-| 12 | [benchmark](12-benchmark.md) | 被测件可插拔、可复现性凭证、多 seed 统计、量程守护 | 已实现 |
+| 12 | [benchmark](12-benchmark.md) | 被测件可插拔、可复现性凭证、多 seed 统计、已知组效度检验 | 已实现 |
 | 13 | [persona-model](13-persona-model.md) | 大五 30 facet + 结构化喜好 + 画像精度指标 | 已实现 |
 | 15 | [agent-api](15-agent-api.md) | Agent 接入接口（HTTP 轮询 + broker）、接入 skill、demo agent、外部 agent（OpenClaw/Hermes）接入 | 已实现 |

@@ -1,6 +1,6 @@
 # 01 · 世界模拟器
 
-> ⚠️ 注：replay 模式已于 R4 下线（量程守护迁移至 live 锚点对 reference vs stub），文中 replay/脚本三档内容为历史记录。
+> ⚠️ 注：replay 模式已于 R4 下线（已知组效度检验 known-groups validity 迁移至 live 对照组 reference vs stub），文中 replay/脚本三档内容为历史记录。
 
 World 是 UserSim 的纯规则核心：0 次 LLM 调用，不 import agents / evaluator / llm。同一 seed 在规则回放模式下产出完全相同的轨迹。
 
@@ -12,14 +12,14 @@ World 是 UserSim 的纯规则核心：0 次 LLM 调用，不 import agents / ev
 x = [valence, energy, satiety, stress] ∈ [0, 1]⁴
 ```
 
-| 维度 | 含义 | 设定点 r | 平和带半宽 |
+| 维度 | 含义 | 设定点 r | 容差带半宽 |
 | --- | --- | --- | --- |
 | valence | 心情愉悦度 | config 可调 | config 可调 |
 | energy | 精力/活力 | config 可调 | config 可调 |
 | satiety | 饱腹感 | config 可调 | config 可调 |
 | stress | 压力（越低越好） | config 可调 | config 可调 |
 
-设定点 `r` 与平和带半宽在 `config/system.toml [state]` 中配置。
+设定点 `r` 与容差带半宽在 `config/system.toml [state]` 中配置。
 
 ---
 

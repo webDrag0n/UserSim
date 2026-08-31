@@ -1,6 +1,6 @@
 # 05 · 数据契约（contracts）
 
-> ⚠️ 注：replay 模式已于 R4 下线（量程守护迁移至 live 锚点对 reference vs stub），文中 replay/脚本三档内容为历史记录。
+> ⚠️ 注：replay 模式已于 R4 下线（已知组效度检验 known-groups validity 迁移至 live 对照组 reference vs stub），文中 replay/脚本三档内容为历史记录。
 
 状态: 草稿
 

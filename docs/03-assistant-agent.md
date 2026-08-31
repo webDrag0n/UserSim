@@ -1,6 +1,6 @@
 # 03 · 助手 Agent 与 Harness 契约（usersim/agents + agents/assistant）
 
-> ⚠️ 注：replay 模式已于 R4 下线（量程守护迁移至 live 锚点对 reference vs stub），文中 replay/脚本三档内容为历史记录。
+> ⚠️ 注：replay 模式已于 R4 下线（已知组效度检验 known-groups validity 迁移至 live 对照组 reference vs stub），文中 replay/脚本三档内容为历史记录。
 
 状态: 已实现
 
@@ -89,7 +89,7 @@ Harness 协议仍是**进程内**被测件的抽象（demo assistant 包装它�
 `persona_hat` 字段每轮落盘为 `TurnRecord.persona_hat`。未实现时退化为"只用本轮增量"，
 老 Harness 不改也能跑（只是画像学习曲线更抖）。
 
-参考 Harness 是 benchmark 的**参考线**：在统一接口与同等信息（HarnessObs）下，用 harness 侧架构（确定性状态跟踪、日程记忆、主动控制策略）把分数做到尽可能高，作为评测矩阵 E1 的固定底座。`stub` 是下界锚点（恒定 x̂=0.5、零干预、不调 LLM）——一个合格的评估器必须把它判为 diverged。`reference_nomem` 是消融对照：与 reference 同模型同 prompt、仅在 session 边界清空全部记忆，用于隔离"跨 session 记忆"的单变量贡献；期望排序 reference > openclaw/hermes > reference_nomem > stub（后两档的相对位置是经验发现）。
+参考 Harness 是 benchmark 的**参考线**：在统一接口与同等信息（HarnessObs）下，用 harness 侧架构（确定性状态跟踪、日程记忆、主动控制策略）把分数做到尽可能高，作为评测矩阵 E1 的固定底座。`stub` 是阴性对照（恒定 x̂=0.5、零干预、不调 LLM）——一个合格的评估器必须把它判为 diverged。`reference_nomem` 是消融对照：与 reference 同模型同 prompt、仅在 session 边界清空全部记忆，用于隔离"跨 session 记忆"的单变量贡献；期望排序 reference > openclaw/hermes > reference_nomem > stub（后两档的相对位置是经验发现）。
 
 > 早期草稿曾规划 `memory/base.py`、`memory/naive.py`、`user_model.py` 三个文件的拆分，实际实现
 > 中记忆策略简单到不值得单独成包（就是一段跨 session 累积的 `profile_notes`）。Phase 2 引入

@@ -54,7 +54,7 @@ usersim/
     contracts/            ← 全部跨组件消息 schema（pydantic；含 agent_api wire 协议）
     world/                ← 时钟、事件引擎、状态动力学、结算器（0 LLM）
     evaluator/            ← 控制论指标、滑窗结算、报告（0 LLM）
-    bench/                ← 多 seed 批量、置信区间、量程守护（0 LLM，组装点）
+    bench/                ← 多 seed 批量、置信区间、已知组效度检验（0 LLM，组装点）
     gateway.py            ← AgentBroker + /api/agent/* 端点（仅依赖 contracts）
     llm/                  ← LLM 客户端（唯一允许联网处）
     server/               ← FastAPI 后端（运行控制 + WebSocket 推送 + agent 接入端点）
@@ -103,7 +103,7 @@ cd web && npm run dev                         # 前端开发模式（代理到 8
 pytest -q            # 全部测试（0 token）
 ```
 
-量程守护的实测（live 锚点对 reference vs stub × 多 seed）是**手动 live 流程**——
+已知组效度检验（known-groups validity）的实测（live 阳性/阴性对照 reference vs stub × 多 seed）是**手动 live 流程**——
 烧 token、不进 CI：
 `python -m usersim bench --groups reference,stub --seeds 1-8 --days 30 --max-episodes 16`
 （断言与产物见 `docs/12-benchmark.md` 第 4 节）。

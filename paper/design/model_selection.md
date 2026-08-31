@@ -22,7 +22,7 @@
 - 所有模型统一：temperature 按 `config/llm.toml` 默认（assistant 0.7 /
   user 0.5），推理档统一用各家**默认档**，钉具体快照版本并记录 system
   fingerprint / 快照日期，写入 meta 供复现（呼应 draft「预先注册协议」）。
-  钉版示例：`deepseek-v4-pro-0813`、`deepseek-v4-flash-0731`（$0.14/$0.28
+  固定版本（pinned）示例：`deepseek-v4-pro-0813`、`deepseek-v4-flash-0731`（$0.14/$0.28
   每 M tokens，价格带下沿）。
 
 ## 1. Assistant 模型横评（主榜，17+ 模型 / 10–11 厂商 / 4 档）
@@ -96,12 +96,12 @@ $0.14/$0.28（V4 Flash）到 $10/$50（Fable 5）跨两个数量级（Pareto 图
 ## 2. User 模型横评（测量仪器研究，6 模型）
 
 协议：user impl 固定 `standard`，assistant 固定 `reference` harness +
-DeepSeek V4 Flash（现钉版仪器对面），只换 user 模型；抽样 2 职业
+DeepSeek V4 Flash（当前固定版本的仪器对面），只换 user 模型；抽样 2 职业
 （高压互联网从业者、倒班护士）× 3 seeds，≈ 36 episodes ≈ 13M tokens。
 
 | 模型 | 档位 | 作用 |
 |------|------|------|
-| DeepSeek V4 Flash（现钉，`agents/user/config.toml`） | B | 现任仪器基线 |
+| DeepSeek V4 Flash（当前固定版本，`agents/user/config.toml`） | B | 现任仪器基线 |
 | Qwen3.7 Plus | A | 国产中档仪器候选 |
 | GPT-5.4 mini | B | 海外中档仪器候选 |
 | Kimi K3-256k | A | 长程一致性候选（K3 经济变体，256K 窗口约半价的配额成本） |
@@ -118,14 +118,14 @@ benchmark 结论对仪器选择不敏感（draft §8「规则评测相关性」�
 - assistant 模型：DeepSeek V4 Flash（成本敏感 + 契约稳定；harness 对比
   需要反复跑，不能用旗舰烧钱）。
 - 被评 harness：`reference` / `reference_nomem` / `openclaw` / `hermes` /
-  `stub`（量程守护锚点，`suite.py: GUARD_POOR_GROUP`）。
+  `stub`（阴性对照，`suite.py: GUARD_POOR_GROUP`）。
 
 ## 4. 落地映射（开跑前的工程动作）
 
 1. `config/llm.toml` 为每个入选模型加 `[providers.<name>]`（全部
    OpenAI 兼容；开源档走托管平台的兼容端点，不自部署），密钥用环境变量。
 2. 主榜每模型一个 profile：复制 `reference.toml` 为
-   `reference_<model>.toml`，内写 `[llm] provider = "<name>"` + 钉版
+   `reference_<model>.toml`，内写 `[llm] provider = "<name>"` + 固定版本号
    `model = "<具体快照>"`。
 3. 榜单元数据（家族/档位/价格带/上下文/开源/快照日期）在冻结配置时
    一次性登记，与 seeds、artifact_hashes 一起公开。

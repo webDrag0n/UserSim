@@ -1,10 +1,11 @@
-"""Benchmark 分数公式（evaluator/score.py）与 run 的 profiles 记录。
+"""Benchmark 分数公式 v4（evaluator/score.py）与 run 的 profiles 记录。
 
-纯函数测试不起子进程、不调 LLM；归档集成测试用手写合成 run 目录（全程确定）。
+v4 精简为 3 个扣分项：ess / band_deficit / coverage_deficit（依据：历史 bench
+数据的区分度分析）。纯函数测试不起子进程、不调 LLM；归档集成测试用手写合成
+run 目录（全程确定）。
 """
 
 import json
-import math
 
 from usersim.config import load_system_config
 from usersim.evaluator.score import FORMULA_TEXT, compute_benchmark, report_observations
@@ -12,11 +13,7 @@ from usersim.evaluator.score import FORMULA_TEXT, compute_benchmark, report_obse
 
 def _report(**over):
     base = {
-        "ess": 0.0, "settling_time_days": 0.0, "overshoot": 0.0,
-        "iae": 0.0, "variance": 0.0, "in_band_ratio": 1.0,
-        "est_err_final": 0.0, "est_err_slope_per_day": 0.0,
-        "persona_err_final": 0.0, "persona_coverage": 1.0,
-        "prefs_err_final": 0.0, "prefs_tag_f1": 1.0,
+        "ess": 0.0, "in_band_ratio": 1.0, "persona_coverage": 1.0,
     }
     base.update(over)
     return base
@@ -24,65 +21,62 @@ def _report(**over):
 
 class TestFormula:
     def test_perfect_run_scores_100(self):
-        out = compute_benchmark(_report(), {}, days=30)
+        out = compute_benchmark(_report(), days=30)
         assert out["score"] == 100.0
         assert out["formula"] == FORMULA_TEXT
         assert all(t["deduct"] == 0 for t in out["terms"])
+        assert {t["key"] for t in out["terms"]} == {"ess", "band_deficit", "coverage_deficit"}
 
-    def test_deduction_is_linear_then_capped(self):
-        # ess 0.05 × 200 = 10 分（线性区）；ess 0.5 × 200 = 100 → 封顶 30
-        out = compute_benchmark(_report(ess=0.05), {}, days=30)
+    def test_ess_linear_then_capped(self):
+        # ess 0.1 × 200 = 20 分（线性区）；ess 0.5 × 200 = 100 → 封顶 40
+        out = compute_benchmark(_report(ess=0.1), days=30)
         ess = next(t for t in out["terms"] if t["key"] == "ess")
-        assert ess["deduct"] == 10.0
-        out2 = compute_benchmark(_report(ess=0.5), {}, days=30)
+        assert ess["deduct"] == 20.0
+        out2 = compute_benchmark(_report(ess=0.5), days=30)
         ess2 = next(t for t in out2["terms"] if t["key"] == "ess")
-        assert ess2["deduct"] == 30.0 == ess2["cap"]
+        assert ess2["deduct"] == 40.0 == ess2["cap"]
 
-    def test_unsettled_counts_as_full_fraction(self):
-        obs = report_observations(_report(settling_time_days=None), days=30)
-        assert obs["settle_frac"] == 1.0
-        obs2 = report_observations(_report(settling_time_days=6.0), days=30)
-        assert obs2["settle_frac"] == 0.2
+    def test_band_deficit_linear_then_capped(self):
+        # in_band_ratio 0.5 → 缺口 0.5 × 30 = 15；in_band_ratio 0 → 缺口 1.0 → 封顶 30
+        out = compute_benchmark(_report(in_band_ratio=0.5), days=30)
+        band = next(t for t in out["terms"] if t["key"] == "band_deficit")
+        assert band["obs"] == 0.5 and band["deduct"] == 15.0 and band["group"] == "control"
+        out2 = compute_benchmark(_report(in_band_ratio=0.0), days=30)
+        band2 = next(t for t in out2["terms"] if t["key"] == "band_deficit")
+        assert band2["deduct"] == 30.0 == band2["cap"]
 
-    def test_iae_normalized_by_days(self):
-        # 同样的 mean|e|，30 天与 60 天 run 的 iae_daily 必须相等（否则长 run 吃亏）
-        assert (report_observations(_report(iae=3.0), 30)["iae_daily"]
-                == report_observations(_report(iae=6.0), 60)["iae_daily"])
+    def test_coverage_deficit_linear_then_capped(self):
+        # persona_coverage 0.5 → 缺口 0.5 × 30 = 15；覆盖 0 → 封顶 30
+        out = compute_benchmark(_report(persona_coverage=0.5), days=30)
+        cov = next(t for t in out["terms"] if t["key"] == "coverage_deficit")
+        assert cov["obs"] == 0.5 and cov["deduct"] == 15.0 and cov["group"] == "belief"
+        out2 = compute_benchmark(_report(persona_coverage=0.0), days=30)
+        cov2 = next(t for t in out2["terms"] if t["key"] == "coverage_deficit")
+        assert cov2["deduct"] == 30.0 == cov2["cap"]
 
-    def test_missing_estimates_count_full_error(self):
-        obs = report_observations(_report(est_err_final=math.nan,
-                                          persona_err_final=math.nan,
-                                          prefs_err_final=math.nan), days=30)
-        assert obs["est_err"] == obs["persona_err"] == obs["prefs_err"] == 0.5
-
-    def test_score_floors_at_zero(self):
-        out = compute_benchmark(_report(ess=1.0, settling_time_days=None, overshoot=1.0,
-                                        iae=100.0, variance=1.0, in_band_ratio=0.0,
-                                        est_err_final=1.0, est_err_slope_per_day=0.01,
-                                        persona_err_final=1.0, persona_coverage=0.0,
-                                        prefs_err_final=1.0, prefs_tag_f1=0.0),
-                                {"violations": 99}, days=10)
+    def test_missing_values_count_full_penalty(self):
+        # 缺失规约：ess 按 1.0、in_band_ratio/persona_coverage 按 0.0 → 三项全封顶
+        obs = report_observations({}, days=30)
+        assert obs == {"ess": 1.0, "band_deficit": 1.0, "coverage_deficit": 1.0}
+        out = compute_benchmark({}, days=30)
+        assert all(t["deduct"] == t["cap"] for t in out["terms"])
         assert out["score"] == 0.0
 
-    def test_insight_observations_feed_contract_group(self):
-        # v3：混杂指标（user_dup/clamp_ratio/wsc）移出 benchmark，传了也不计分
-        out = compute_benchmark(_report(), {"violations": 2, "user_dup": 4,
-                                            "clamp_ratio": 0.5}, days=30)
-        v = next(t for t in out["terms"] if t["key"] == "violations")
-        assert v["deduct"] == 10.0 and v["group"] == "contract"
-        assert out["groups"]["contract"]["deduct"] == 10.0
-        assert "user_dup" not in {t["key"] for t in out["terms"]}
+    def test_score_floors_at_zero(self):
+        out = compute_benchmark(_report(ess=99.0, in_band_ratio=0.0, persona_coverage=0.0),
+                                days=10)
+        assert out["score"] == 0.0
 
     def test_config_overrides_weights(self):
         cfg = {"ess": [100.0, 5.0]}
-        out = compute_benchmark(_report(ess=0.5), {}, days=30, cfg=cfg)
+        out = compute_benchmark(_report(ess=0.5), days=30, cfg=cfg)
         ess = next(t for t in out["terms"] if t["key"] == "ess")
         assert ess["coef"] == 100.0 and ess["deduct"] == 5.0
 
     def test_groups_cover_all_terms(self):
-        out = compute_benchmark(_report(), {}, days=30)
-        assert {t["group"] for t in out["terms"]} == {"control", "belief", "contract"}
-        assert set(out["groups"]) == {"control", "belief", "contract"}
+        out = compute_benchmark(_report(), days=30)
+        assert {t["group"] for t in out["terms"]} == {"control", "belief"}
+        assert set(out["groups"]) == {"control", "belief"}
 
 
 class TestArchiveIntegration:
@@ -125,9 +119,11 @@ class TestArchiveIntegration:
         report = evaluate_run(run_dir, cfg)
         bench = report["benchmark"]
         assert 0.0 <= bench["score"] <= 100.0
+        assert bench["version"] == "v4"
         assert bench["formula"] == FORMULA_TEXT
+        assert {t["key"] for t in bench["terms"]} == {"ess", "band_deficit", "coverage_deficit"}
         on_disk = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
         assert on_disk["benchmark"]["score"] == bench["score"]
-        # insights 观测量已导出（benchmark 的契约项数据源）
+        # insights 观测量仍导出（M1-M5 manipulation check 报告项，不再参与 benchmark 计分）
         stats = json.loads((run_dir / "insights.json").read_text(encoding="utf-8"))["stats"]
         assert "violations" in stats["score_observations"]

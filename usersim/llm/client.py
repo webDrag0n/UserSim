@@ -18,6 +18,26 @@ from usersim.config import LLMRole, Namespace
 # reported_models.json 的写锁：user/assistant 两个 demo agent 线程共享同一 run_dir
 _REPORTED_LOCK = threading.Lock()
 
+# 进程级 LLM 并发上限（惰性初始化，多 LLMClient 实例共享单例）：
+# bench 默认全并发启动 episode，真正打到 provider 的并发由这里按
+# llm.toml [runtime].concurrency 限流
+_LLM_SEM: threading.BoundedSemaphore | None = None
+_LLM_SEM_LOCK = threading.Lock()
+
+
+def _llm_semaphore() -> threading.BoundedSemaphore:
+    global _LLM_SEM
+    if _LLM_SEM is None:
+        with _LLM_SEM_LOCK:
+            if _LLM_SEM is None:
+                from usersim.config import load_llm_runtime
+                try:
+                    limit = int(load_llm_runtime().get("concurrency", 8))
+                except Exception:  # noqa: BLE001 — 配置缺失时退回默认
+                    limit = 8
+                _LLM_SEM = threading.BoundedSemaphore(max(1, limit))
+    return _LLM_SEM
+
 
 class LLMError(Exception):
     pass
@@ -105,15 +125,17 @@ class LLMClient:
         """JSON 模式调用，带指数退避重试；返回解析后的 dict。"""
         last_err: Exception | None = None
         budget = max_tokens or int(self.role.max_tokens)
+        sem = _llm_semaphore()
         for attempt in range(self.max_retries):
             try:
-                resp = self.client.chat.completions.create(
-                    model=self.role.model,
-                    messages=messages,
-                    temperature=float(self.role.temperature),
-                    max_tokens=budget,
-                    response_format={"type": "json_object"},
-                )
+                with sem:  # 进程级 LLM 并发上限：只圈 HTTP 请求，退避等待不占额度
+                    resp = self.client.chat.completions.create(
+                        model=self.role.model,
+                        messages=messages,
+                        temperature=float(self.role.temperature),
+                        max_tokens=budget,
+                        response_format={"type": "json_object"},
+                    )
                 content = resp.choices[0].message.content or ""
                 if not content.strip():
                     # 推理模型（如 deepseek-v4-flash）会把 max_tokens 预算耗在

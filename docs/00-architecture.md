@@ -137,7 +137,7 @@ R4 起系统只有 **Live** 一种运行模式：UserAgent 与 AssistantAgent �
 经 agent 接口接入（demo 或外部实现）。原 Replay 模式（0 LLM、三档脚本用户/助手
 good/mid/poor，`usersim/scripted.py`，同 seed 逐字节复现）已彻底删除；验证世界
 动力学与 CI 回归改由 pytest（纯函数 / 合成 fixture / World 直驱，0 token）承担，
-量程守护迁移至 live 锚点对 reference vs stub（见 docs/12-benchmark.md 第 4 节）。
+已知组效度检验（known-groups validity）迁移至 live 对照组 reference vs stub（见 docs/12-benchmark.md 第 4 节）。
 
 ---
 

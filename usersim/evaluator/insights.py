@@ -109,7 +109,7 @@ def compute_insights(
 
     # ================= 契约与故障 =================
     # v5：超时与协议违约分流——超时是 provider 延迟/容量问题（故障诊断），
-    # 只有 schema/JSON/crash 才算被测件的协议违约（进 benchmark）
+    # 只有 schema/JSON/crash 才算被测件的协议违约（benchmark v4 起不再扣契约项，此处仍落盘诊断）
     timeouts = [t for t in turns
                 if t.contract_violation and t.contract_violation.startswith("assistant_timeout")]
     violations = [t for t in turns
@@ -446,7 +446,7 @@ def compute_insights(
     health = max(0, round(100.0 - sum(deductions.values())))
     stats["health_score"] = health
     stats["score_deductions"] = {k: round(v, 2) for k, v in deductions.items()}
-    # 原始观测量导出：benchmark 分数（evaluator/score.py）直接复用，避免两处各算一遍
+    # 原始观测量导出（health_score 的输入；v4 起 benchmark 不再消费，仅作落盘诊断）
     stats["score_observations"] = {k: round(float(v), 4) for k, v in observations.items()}
     stats["ess"] = round(ess, 4)
     stats["n_turns"] = len(turns)

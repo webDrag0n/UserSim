@@ -69,10 +69,32 @@ export default function Dashboard({ onOpen }: { onOpen: (runId: string) => void 
   const doDelete = async () => {
     if (selected.size === 0 && selectedGroups.size === 0) return
     setDeleting(true)
-    if (selected.size > 0) await api.deleteRuns([...selected])
-    if (selectedGroups.size > 0) await api.deleteBench([...selectedGroups])
+    const skipped: string[] = []
+    if (selected.size > 0) {
+      const res = await api.deleteRuns([...selected])
+      skipped.push(...res.skipped.map((s) => `${s.run_id}：${s.reason}`))
+    }
+    if (selectedGroups.size > 0) {
+      const res = await api.deleteBench([...selectedGroups])
+      skipped.push(...res.skipped.map((s) => `${s.bench_id}：${s.reason}`))
+    }
     setDeleting(false)
     exitSelecting()
+    refresh()
+    if (skipped.length > 0) alert(`部分存档未删除：\n${skipped.join('\n')}`)
+  }
+  // 删除整个 bench 分组文件夹（runs/_bench/<bench_id>/ 整目录）
+  const deleteWholeGroup = async () => {
+    if (!openGroup || deleting) return
+    if (!confirm(`确定删除整个分组文件夹「${openGroup.bench_id}」？\n其中 ${openGroup.n_runs} 个 run 会一并删除，不可撤销。`)) return
+    setDeleting(true)
+    const res = await api.deleteBench([openGroup.bench_id])
+    setDeleting(false)
+    if (res.skipped.length > 0) {
+      alert(`无法删除「${openGroup.bench_id}」：${res.skipped.map((s) => s.reason).join('；')}`)
+      return
+    }
+    setOpenGroupId(null)
     refresh()
   }
 
@@ -216,12 +238,17 @@ export default function Dashboard({ onOpen }: { onOpen: (runId: string) => void 
             <span className="text-[11px] text-t3">
               {openGroup.n_runs} 个 run · 分组：{openGroup.harnesses.join('、')}
             </span>
-            <div className="ml-auto">
+            <div className="ml-auto flex items-center gap-2">
               {!selecting ? (
-                <Button variant="danger" className="!py-1.5 !text-xs" onClick={() => setSelecting(true)}
-                  disabled={openGroup.runs.every((r) => r.status === 'running')}>
-                  🗑 删除存档
-                </Button>
+                <>
+                  <Button variant="danger" className="!py-1.5 !text-xs" onClick={() => setSelecting(true)}
+                    disabled={openGroup.runs.every((r) => r.status === 'running')}>
+                    🗑 删除存档
+                  </Button>
+                  <Button variant="danger" className="!py-1.5 !text-xs" onClick={deleteWholeGroup} disabled={deleting}>
+                    {deleting ? '删除中…' : '🗑 删除整个文件夹'}
+                  </Button>
+                </>
               ) : (
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-t2">已选 <span className="font-num text-[var(--critical)]">{selected.size}</span> 个</span>

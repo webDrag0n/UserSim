@@ -14,11 +14,15 @@ reference（好锚点）vs stub（失能下界），分组键由参数给出）�
 但抽样噪声足以把均值推过阈值（刀沿）。status 汇总：fail > borderline > ok。
 `checks`/`ok` 保持原二值语义不变（borderline 仍算通过），黄灯只体现在
 check_status/status 字段，供前端与报告提示"结论在统计噪声刀沿上"。
+
+仅阳性对照模式（stub 缺席）：只校验好锚点自身健康——reference 组 ess 中位数
+≤ diverged_ess_min 且并非全部 episode 判 diverged；不满足即 fail，含义是
+"疑世界侧/管线回归，本 bench 分数不可信"。
 """
 
 from __future__ import annotations
 
-from statistics import stdev
+from statistics import median, stdev
 
 from usersim.bench.aggregate import cohens_d
 
@@ -34,10 +38,12 @@ def _sem(vals: list[float]) -> float | None:
 
 def compute(episodes: list[dict], eval_cfg,
             good_group: str = "reference", poor_group: str = "stub") -> dict:
-    """episodes 需含 good_group / poor_group 两个分组的记录（live 锚点对）。"""
+    """episodes 需含 good_group 分组；poor_group 缺席时走仅阳性对照模式。"""
     by_group: dict[str, list[float]] = {}
+    verdicts: dict[str, list[str | None]] = {}
     for ep in episodes:
         by_group.setdefault(ep["group"], []).append(ep["metrics"].get("ess"))
+        verdicts.setdefault(ep["group"], []).append(ep["metrics"].get("verdict"))
 
     good = [v for v in by_group.get(good_group, []) if v is not None]
     poor = [v for v in by_group.get(poor_group, []) if v is not None]
@@ -49,6 +55,33 @@ def compute(episodes: list[dict], eval_cfg,
     mean_poor = sum(poor) / len(poor) if poor else None
     sem_good = _sem(good)
     sem_poor = _sem(poor)
+
+    if not poor:
+        # 仅阳性对照（stub 缺席）：好锚点自身不健康 = 疑世界侧/管线回归，
+        # 本 bench 分数不可信（ess 中位数过发散阈，或全员判 diverged）
+        good_verdicts = verdicts.get(good_group, [])
+        ess_median = median(good) if good else None
+        all_diverged = bool(good_verdicts) and all(v == "diverged" for v in good_verdicts)
+        healthy = bool(ess_median is not None and ess_median <= diverged_min
+                       and not all_diverged)
+        return {
+            "mode": "positive_control",
+            "groups": {"good": good_group, "poor": None},
+            "thresholds": {"diverged_ess_min": diverged_min, "converged_ess_max": converged_max},
+            "ess_good_mean": mean_good,
+            "ess_good_median": ess_median,
+            "ess_poor_mean": None,
+            "ess_good_sem": sem_good,
+            "ess_poor_sem": None,
+            "margin_poor": None,
+            "margin_good": None,
+            "separation": None,
+            "all_diverged": all_diverged,
+            "checks": {"positive_control_healthy": healthy},
+            "check_status": {"positive_control": "pass" if healthy else "fail"},
+            "status": "ok" if healthy else "fail",
+            "ok": healthy,
+        }
 
     margin_poor = (mean_poor - diverged_min) if mean_poor is not None else None
     margin_good = (converged_max - mean_good) if mean_good is not None else None

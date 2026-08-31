@@ -63,7 +63,7 @@ def _parse_seeds(text: str) -> list[int]:
 
 
 def _cmd_bench(args, cfg) -> None:
-    from usersim.bench import BenchSpec, default_concurrency, estimate_tokens, run_suite
+    from usersim.bench import BenchSpec, estimate_tokens, run_suite
     from usersim.world.catalog import PROFESSIONS
 
     seeds = _parse_seeds(args.seeds)
@@ -83,7 +83,7 @@ def _cmd_bench(args, cfg) -> None:
     spec = BenchSpec(
         seeds=seeds, days=args.days, groups=groups,
         archetypes=archetypes,
-        concurrency=args.concurrency or default_concurrency(),
+        concurrency=args.concurrency,  # None = 全部 episode 同时启动（LLM 侧另有信号量限流）
     )
     episodes = spec.episodes()
     print(f"批量规模：{len(episodes)} episodes = {len(groups)} 组 × {len(archetypes)} 职业 × {len(seeds)} seeds"
@@ -124,7 +124,15 @@ def _format_bench(result: dict) -> str:
             ci = f" ±{s['ci95']:.4f}" if s.get("ci95") is not None else ""
             lines.append(f"    {key:<24} {s['mean']:.4f}{ci}   (n={s['n']})")
     disc = result.get("discriminability")
-    if disc:
+    if disc and disc.get("mode") == "positive_control":
+        # 仅阳性对照（无 stub 锚点）：好锚点自身不健康 = 疑世界侧/管线回归
+        mark = "✅ 通过" if disc["ok"] else "❌ 未通过（疑世界侧/管线回归，本 bench 分数不可信）"
+        med = disc.get("ess_good_median")
+        med_s = f"{med:.4f}" if isinstance(med, (int, float)) else "—"
+        lines += ["", "-" * 72, f"阳性对照（{disc['groups']['good']} 自检）：{mark}",
+                  f"    ess 中位数={med_s}（阈值 diverged_ess_min={disc['thresholds']['diverged_ess_min']}）"
+                  f"  全员 diverged={disc.get('all_diverged')}"]
+    elif disc:
         def _num(v, spec: str) -> str:
             # n<2 时 separation/margin 为 None（单 seed 冒烟等场景），显示 — 而非崩
             return format(v, spec) if isinstance(v, (int, float)) else "—"
@@ -143,6 +151,14 @@ def _format_bench(result: dict) -> str:
             st = cstat.get(k.replace("_positive", "").replace("_large", ""))
             sym = "⚠" if st == "borderline" else ("✓" if v else "✗")
             lines.append(f"    {sym} {k}")
+    integ = (result.get("aggregate") or {}).get("integrity")
+    if integ and not integ.get("ok", True):
+        # 跨组 turns.jsonl 逐字节相同：疑"输出被复制"回归，本 bench 结果不可信
+        lines += ["", "!" * 72,
+                  f"🚨 完整性告警：{len(integ['duplicates'])} 对跨组 episode 的 turns.jsonl 逐字节相同"
+                  "（疑跨组输出被复制，分数不可信）", "!" * 72]
+        for d in integ["duplicates"]:
+            lines.append(f"    {d['group_a']}/seed{d['seed_a']}  ≡  {d['group_b']}/seed{d['seed_b']}")
     mde = (result.get("aggregate") or {}).get("mde")
     if disc and mde:
         # 锚点对的统计效力：主 KPI 最小可检测均值差/方差比
@@ -175,7 +191,8 @@ def main() -> None:
     p_bench.add_argument("--groups", default=None,
                          help="harness 名列表（profiles/ 文件名），默认 reference,stub（锚点对，附带量程守护）")
     p_bench.add_argument("--archetypes", default=None, help="职业列表，或 all（默认 auto=由 seed 决定）")
-    p_bench.add_argument("--concurrency", type=int, default=None)
+    p_bench.add_argument("--concurrency", type=int, default=None,
+                         help="episode 并发数（默认=全部组合同时启动；LLM 限流见 llm.toml [runtime].concurrency）")
     p_bench.add_argument("--bench-id", default=None,
                          help="复用已有 bench 目录（断点续跑：已有 report.json 的 episode 自动跳过）")
     p_bench.add_argument("--max-episodes", type=int, default=None, help="显式 episode 上限（确认成本，硬上限 20）")

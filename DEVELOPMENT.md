@@ -24,8 +24,8 @@ pytest -q            # 全部测试（0 token：纯函数 / 合成 fixture / Wor
 ```
 
 > **R4 起只有 live 一种运行模式（replay 已删除）：所有 `run` / `bench` 都烧 token。**
-> 0-token 回归手段是 pytest（合成 fixture）与 World 单测；量程守护的实测
-> （reference vs stub × 多 seed）是手动 live 流程，不进 CI（见 `docs/12-benchmark.md` 第 4 节）。
+> 0-token 回归手段是 pytest（合成 fixture）与 World 单测；已知组效度检验
+> （known-groups validity）的实测（reference vs stub × 多 seed）是手动 live 流程，不进 CI（见 `docs/12-benchmark.md` 第 4 节）。
 
 ## 配置约定（三类文件，各管各的）
 
@@ -62,7 +62,7 @@ pytest -q            # 全部测试（0 token：纯函数 / 合成 fixture / Wor
   改包结构后第一件事是跑它；
 - `tests/test_runner.py` / `test_gateway.py`：agent 接口用 `broker.register_local()`
   进程内钩子打桩，不起 HTTP；
-- 量程守护（reference vs stub 锚点对 + 区分度断言）是**手动 live 流程**——烧 token、
+- 已知组效度检验（known-groups validity；reference vs stub 阳性/阴性对照 + 区分度断言）是**手动 live 流程**——烧 token、
   不进 CI：`python -m usersim bench --groups reference,stub --seeds 1-8 --days 30 --max-episodes 16`，
   动数值后才需要跑（见 `docs/12-benchmark.md` 第 4 节）。
 

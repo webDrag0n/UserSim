@@ -29,7 +29,8 @@ def evaluate_run(run_dir: Path, cfg, write_insights: bool = True) -> dict:
     # 契约违约拆分（v5）：超时（assistant_timeout，provider 延迟/容量问题）与
     # 协议违约（schema/JSON/crash，被测件真实协议能力）分开计数——
     # 此前合并计数导致并发/慢 provider 下 reference 组"违约率"12-16% 的假象。
-    # benchmark 只扣协议违约；超时进 health_score 的故障诊断。
+    # benchmark v4 起不再扣契约项（归因混杂）；两者仍落盘：超时进 health_score
+    # 的故障诊断，协议违约供聚合报告展示。
     n_assistant_turns = sum(1 for t in turns if t.speaker == "assistant")
     n_timeouts = sum(1 for t in turns
                      if t.contract_violation and t.contract_violation.startswith("assistant_timeout"))
@@ -58,8 +59,7 @@ def evaluate_run(run_dir: Path, cfg, write_insights: bool = True) -> dict:
         from usersim.evaluator.score import compute_benchmark
 
         report["benchmark"] = compute_benchmark(
-            report, insights.get("stats", {}).get("score_observations", {}),
-            days=int(meta.get("days") or 1), cfg=cfg.get("benchmark"))
+            report, days=int(meta.get("days") or 1), cfg=cfg.get("benchmark"))
         (run_dir / "insights.json").write_text(
             json.dumps(insights, ensure_ascii=False, indent=2), encoding="utf-8")
 

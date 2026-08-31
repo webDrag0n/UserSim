@@ -1,6 +1,6 @@
 # 实施总结：智能体驱动机制分析与用户主动规划系统设计
 
-> ⚠️ 注：replay 模式已于 R4 下线（量程守护迁移至 live 锚点对 reference vs stub），文中 replay/脚本三档内容为历史记录。
+> ⚠️ 注：replay 模式已于 R4 下线（已知组效度检验 known-groups validity 迁移至 live 对照组 reference vs stub），文中 replay/脚本三档内容为历史记录。
 
 **日期**：2026-08-04  
 **状态**：设计完成，待实施

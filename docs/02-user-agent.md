@@ -1,6 +1,6 @@
 # 02 · 用户模拟 Agent
 
-> ⚠️ 注：replay 模式已于 R4 下线（量程守护迁移至 live 锚点对 reference vs stub），文中 replay/脚本三档内容为历史记录。
+> ⚠️ 注：replay 模式已于 R4 下线（已知组效度检验 known-groups validity 迁移至 live 对照组 reference vs stub），文中 replay/脚本三档内容为历史记录。
 
 用户 Agent 的职责是把"真实的人"演出来：基于状态、人格与事件上下文，生成对话、情绪化表达、求助决策，以及 session 的开启与结束。它是世界的"感受器官"，不是世界的"手"——任何输出都不会直接改变状态向量 `x`。
 

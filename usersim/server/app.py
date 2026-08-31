@@ -187,13 +187,13 @@ class StartBenchRequest(BaseModel):
     groups: list[str] | None = None
     archetypes: list[str] | None = None
     max_episodes: int | None = None
-    concurrency: int | None = None   # episode 并发数（默认取 llm.toml）
+    concurrency: int | None = None   # episode 并发数（None = 全部组合同时启动）
     bench_id: str | None = None      # 复用已有 bench 目录断点续跑（补种子/重评估）
 
 
 @app.post("/api/bench")
 def start_bench(req: StartBenchRequest) -> dict:
-    from usersim.bench import BenchSpec, default_concurrency, estimate_tokens, run_suite
+    from usersim.bench import BenchSpec, estimate_tokens, run_suite
     from usersim.cli import _parse_seeds
 
     seeds = _parse_seeds(req.seeds)
@@ -201,7 +201,7 @@ def start_bench(req: StartBenchRequest) -> dict:
     archetypes: list = list(req.archetypes) if req.archetypes else [None]
     spec = BenchSpec(seeds=seeds, days=req.days, groups=groups,
                      archetypes=archetypes,
-                     concurrency=req.concurrency or default_concurrency())
+                     concurrency=req.concurrency)
     n_ep = len(spec.episodes())
 
     cap = req.max_episodes

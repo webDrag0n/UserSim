@@ -11,9 +11,9 @@
   （控制/估计/画像/契约）提升多少？benchmark 能否分辨同家族相邻档位？
 - **Q2（机制 × 能力交互）**：记忆消融（reference_nomem）对不同档位模型的伤害
   是否相同——强模型能否靠上下文内推理弥补无记忆？
-- **Q3（量程守护）**：reference 与 stub（退化锚点）的可分辨性在钉版模型下是否成立。
+- **Q3（已知组效度检验）**：reference 与 stub（阴性对照）的可分辨性在钉版模型下是否成立。
 
-## 2. 因子设计（2×2 + 锚点）
+## 2. 因子设计（2×2 + 对照组）
 
 | 组（profile） | harness | 助手模型 | 角色 |
 |---|---|---|---|
@@ -38,7 +38,7 @@
 
 - H1：pro 的 benchmark 总分显著高于 flash（主效应），主要来自画像学习与契约稳定。
 - H2：nomem 对两档都降分，但 pro 的降幅更小（交互效应）。
-- H3：reference 组与 stub 组在控制/估计指标上显著分离（分辨力锚点成立）。
+- H3：reference 组与 stub 组在控制/估计指标上显著分离（对照分离成立）。
 
 ## 4. 观测指标（每 episode 落盘 report.json / insights.json）
 
@@ -57,7 +57,7 @@ python -m usersim bench --groups reference,reference_pro,reference_nomem,referen
 
 产物：`runs/_bench/bench_live_<ts>/`（episodes.jsonl / aggregate.json /
 discriminability.json + 每格完整 run 存档）。分析时按组聚合 mean±sd，
-对照 H1-H3；量程守护要求 reference vs stub 显著分离，否则本轮数据不可用于模型比较。
+对照 H1-H3；已知组效度检验要求 reference vs stub 显著分离，否则本轮数据不可用于模型比较。
 
 ## 6. 结果（bench_live_20260823T175134，25 episodes 全矩阵，评分口径 v4.1）
 
@@ -69,7 +69,7 @@ discriminability.json + 每格完整 run 存档）。分析时按组聚合 mean�
 | reference_nomem_pro | 5 | 8.9 ± 5.6 | 0.0535 | 7.0% | oscillating |
 | stub | 5 | 4.8 ± 3.7 | 0.2373 | 0% | diverged |
 
-量程守护 ✅：margin_good=+0.005、margin_poor=+0.157、separation=3.96。
+已知组效度检验 ✅：margin_good=+0.005、margin_poor=+0.157、separation=3.96。
 
 - **H1 不成立（均值层面）**：同种子配对差 t(4)=0.04，pro 与 flash 的 benchmark
   水平无差异；ess 配对差 t(4)=-0.92 亦不显著。pro 的差异体现在**方差**：
@@ -79,7 +79,7 @@ discriminability.json + 每格完整 run 存档）。分析时按组聚合 mean�
   机理：nomem_pro 的 ess（0.0535）远好于 nomem flash（0.0937）且 100% 判 oscillating，
   但 benchmark 反而更低——pro 在无记忆长输出下契约违约率 7.0%（vs 1.4%），
   超时/违约扣分吃掉了控制优势。
-- **H3 成立**：锚点对分离近 4 个标准差，stub 全程发散、带内驻留 0%。
+- **H3 成立**：对照组分离近 4 个标准差，stub 全程发散、带内驻留 0%。
 - 事故记录：补种子期间 provider 余额耗尽（402）污染 5 个 episode
   （大面积降级 → 轨迹退化为纯世界漂移，与 stub 逐位一致）；已隔离并重跑补齐。
   教训：批量前后应做余额探针；stub 同种子轨迹完全可复现（重跑 ess 逐位相同），

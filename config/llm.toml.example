@@ -54,5 +54,5 @@ max_tokens  = 4096
 [runtime]
 timeout_s    = 60     # 单次请求超时
 max_retries  = 3      # 失败重试（指数退避）
-concurrency  = 4      # 多 episode 并行时的 LLM 并发上限
+concurrency  = 8      # 进程级 LLM 并发上限（模块级信号量，多 episode/多角色共享）
 log_prompts  = false  # 是否在运行日志中保存完整 prompt（调试用，体积大）

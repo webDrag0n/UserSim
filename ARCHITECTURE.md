@@ -27,7 +27,7 @@ UserSim 是一个**长程用户–手机助手模拟与 Benchmark 系统**：纯
 │   evaluator/   控制论指标、滑窗、报告（0 LLM）              │
 │   contracts/   全部跨组件消息 schema（pydantic）            │
 │   llm/         LLM 客户端（唯一允许联网处）                 │
-│   bench/       多 seed 批量 + 置信区间 + 量程守护           │
+│   bench/       多 seed 批量 + 置信区间 + 已知组效度检验      │
 │   server/      FastAPI 后端（运行控制 + WebSocket）         │
 ├─────────────────────────────────────────────────────────┤
 │ skills/      外部 agent 接入 skill（agentskills 格式）     │
@@ -83,7 +83,8 @@ world 与 evaluator **0 LLM**；评分器只消费结构化日志。
 R4 起系统只有 **live** 一种运行模式：用户与助手都是经 agent 接口接入的真实
 agent（demo 或外部实现）。曾经的 replay 模式（`usersim/scripted.py` 三档脚本
 good/mid/poor，0 LLM，同 seed 逐字节复现）已彻底下线——0-token 回归手段改为
-pytest（纯函数 / 合成 fixture / World 直驱单测）；量程守护迁移到 live 锚点对
+pytest（纯函数 / 合成 fixture / World 直驱单测）；已知组效度检验（known-groups
+validity）迁移到 live 阳性/阴性对照
 **reference vs stub**（见 `docs/12-benchmark.md` 第 4 节）。
 
 ## 关键决策与理由
@@ -114,7 +115,7 @@ pytest（纯函数 / 合成 fixture / World 直驱单测）；量程守护迁移
    openclaw/hermes 等 `type=cli` 走通用 CLI 驱动（argv 模板 + key/resume 会话策略 +
    输出提取，全部在 toml 里声明）。增删一个 toml 就增删一个可选实现；
    assistant 与 user 两侧对称。
-6. **评估 = 控制论**：不评对话"好不好"，评"有没有把用户控制在平和带内"——
+6. **评估 = 控制论**：不评对话"好不好"，评"有没有把用户控制在设定点容差带内"——
    指标、滑窗结算、报告全部离线、纯规则、可复现。
 7. **可复现性凭证**：每次 run 落 `meta.json`（seed、config_hash、prompt_versions、
    harness 接入方式）；随机性一律来自 world 的种子流，agent 侧不得自行 `random.*`。

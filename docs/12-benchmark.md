@@ -1,4 +1,4 @@
-# 12 · Benchmark 执行协议（可插拔被测件 · 多 seed 统计 · 量程守护）
+# 12 · Benchmark 执行协议（可插拔被测件 · 多 seed 统计 · 已知组效度检验）
 
 状态: 已实现（第四轮迭代，live-only）
 
@@ -32,7 +32,7 @@ class Harness(Protocol):
 - Harness 协议落位 `usersim/agents/base.py`；注册表 `usersim/agents/registry.py` 扫描
   `agents/assistant/profiles/*.toml`——**实现即配置文件，增删文件即增删可选实现**。
 - 内置两类 type：`package` 导入 `agents/assistant/<name>/` 实现包（`reference` 参考线、
-  `reference_nomem` 减记忆消融、`stub` 失能下界）；`cli` 走通用 CLI 驱动（`usersim/agents/cli_agent.py`）：openclaw.toml /
+  `reference_nomem` 减记忆消融、`stub` 阴性对照）；`cli` 走通用 CLI 驱动（`usersim/agents/cli_agent.py`）：openclaw.toml /
   hermes.toml 把本机 agent CLI
   整机包装为 Harness——跨 turn 记忆用各 CLI 原生 session（key / resume 两种模式由
   配置声明），输出契约 = 正文 + 末尾 ```json 块；每轮消息携带 Runner 注入的动态
@@ -77,7 +77,7 @@ class Harness(Protocol):
 ## 3. 多 seed 批量与置信区间
 
 ```bash
-python -m usersim bench --groups reference,stub --seeds 1-8 --days 30 --max-episodes 16   # 量程守护锚点对
+python -m usersim bench --groups reference,stub --seeds 1-8 --days 30 --max-episodes 16   # 已知组效度检验对照组
 python -m usersim bench --groups reference --seeds 1-8 --days 30 --max-episodes 8         # 单组统计
 python -m usersim bench --groups openclaw --seeds 1-20 --archetypes all --max-episodes 20 # 全职业
 ```
@@ -86,7 +86,7 @@ python -m usersim bench --groups openclaw --seeds 1-20 --archetypes all --max-ep
 - `verdict` 输出三档占比与众数，另有**判定一致率**（`verdict_consistency`：与众数一致的
   episode 占比——组内分歧本身就是信号，H1 教训：模型差异可能在方差）。
 - **`settling_time_days = None` 单独计为 `never_settled`，不当缺失值丢弃**——否则出带后
-  从未回带的最差助手会因为样本被丢掉而看起来最好。（v5 起"全程未出带"记 $t_s=0$，
+  从未回归带内（never settled）的最差助手会因为样本被丢掉而看起来最好。（v5 起"全程未出带"记 $t_s=0$，
   不再计入 never_settled——从未失控不等于从未稳定。）
 - **MDE（最小可检测效应）**：`aggregate.json` 顶层 `mde` 字段给出每组对在当前 n 下、
   α=0.05/power=80% 可检测的最小均值差（两样本 t）与最小方差比（对数方差正态近似），
@@ -94,22 +94,24 @@ python -m usersim bench --groups openclaw --seeds 1-20 --archetypes all --max-ep
   表尾逐组对列出。
 - 产物：`runs/_bench/<bench_id>/{episodes.jsonl, aggregate.json, discriminability.json}`
   （bench_id 前缀 `bench_live_`）。
+- benchmark_score 采用 v4 三项扣分公式（`ess` / `in_band_ratio` / `persona_coverage`，
+  公式与精简依据见 `docs/04-evaluator.md` 第 8 节）；被移除指标仍全部落盘供诊断。
 - 成本闸门：bench 恒为 live（烧 token）；episode 按 `--concurrency` 并发
   （默认取 `llm.toml` 的 concurrency，防限流靠 chat_json 指数退避重试兜底）；
   硬上限 20 episode/次，且必须显式 `--max-episodes` 确认成本。
 - 断点续跑：run 目录已有 `report.json` 的 episode 直接复用存档重评估，
   重跑 bench 不重复烧已完成 episode 的 token。
 
-## 4. 量程守护（live 锚点对：reference vs stub）
+## 4. 已知组效度检验（known-groups validity；live 对照组：reference vs stub）
 
-把"世界能否分辨好助手与差助手"变成可断言的量。R4 起锚点从 replay 三档脚本迁移到
-**live 锚点对**：`reference`（好锚点，参考实现）vs `stub`（失能下界）。当 bench 的
+把"世界能否分辨好助手与差助手"变成可断言的量。R4 起对照从 replay 三档脚本迁移到
+**live 对照组**：`reference`（阳性对照，参考实现）vs `stub`（阴性对照）。当 bench 的
 `--groups` 同时包含 reference 与 stub 时自动触发，结果写入 `discriminability.json`：
 
 ```
 margin_poor = mean(ess_stub) − diverged_ess_min        > 0    差助手确实被判差
 margin_good = converged_ess_max − mean(ess_reference)  > 0    好助手确实被判好
-separation  = Cohen's d(ess_reference, ess_stub)       > 1.5  两锚点必须清晰可分
+separation  = Cohen's d(ess_reference, ess_stub)       > 1.5  两对照必须清晰可分
 ```
 
 v5 起增加**黄灯（borderline）区间判定**：ess 均值 ±SEM 跨阈时对应检查记
@@ -140,9 +142,9 @@ converged；live reference 收敛 run 实测 settle=4.5 天 / overshoot=0.177）
 | `converged_ess_max` | 0.030 | **0.060**（v4.1 终标定） |
 | `diverged_ess_min` | 0.080 | 不变 |
 
-v4 重标定过程与教训：首轮按 15 episode 好锚点 P75 拟合 0.050，补种子后新样本落入
+v4 重标定过程与教训：首轮按 15 episode 阳性对照 P75 拟合 0.050，补种子后新样本落入
 分布右尾，margin_good 再度转负（-0.005，≈0.4 SEM 刀沿）——**向单批数据拟合阈值是
-自适应偏差**。v4.1 终值 0.060 取全部 20 个干净 live episode 好锚点 5-seed 均值
+自适应偏差**。v4.1 终值 0.060 取全部 20 个干净 live episode 阳性对照 5-seed 均值
 （0.0548）+ 微裕度，margin_good=+0.005、separation=5.75。后续若再触刀沿，应改
 区间判定（ess ± SEM 跨阈记 borderline）而非继续挪阈值——**该区间判定已在 v5 落地**
 （见上节黄灯语义）。
@@ -157,7 +159,7 @@ session 多的 run 被冤枉；归一化后跨 run 可比。report.json 顶层�
 ### 实测基线（历史 replay 口径，待 live 重测）
 
 > ⚠️ 下表为 replay 时代基线（8 seed × 30 天，三档脚本 good/mid/poor），仅作历史
-> 参照；live 锚点对（reference vs stub）的基线尚待重测。
+> 参照；live 对照组（reference vs stub）的基线尚待重测。
 
 | 档位 | ess | 带内驻留 | ‖x−x̂‖ 终值 | 健康分 | 判定众数 |
 |---|---|---|---|---|---|
@@ -172,7 +174,7 @@ session 多的 run 被冤枉；归一化后跨 run 可比。report.json 顶层�
 顶级页面「批量评测」：参数组合表单（组/seeds/天数/并发/max_episodes，默认即模型天梯
 实验 5 组 × seeds 42-46 × 30 天）+ 一键启动（POST /api/bench，恒 live 烧 token，
 max_episodes 为成本确认闸门）、总进度条与进行中 episode 逐个进度（slots.jsonl 推导）、
-分组聚合表（mean ± 95% CI，含违约次数与违约率两列）、量程守护红绿灯卡、episode 明细。
+分组聚合表（mean ± 95% CI，含违约次数与违约率两列）、已知组效度检验红绿灯卡、episode 明细。
 运行控制台中 bench 以文件夹分组呈现、内部 run 可下钻回放；进行中的 bench 文件夹
 实时显示各 run 天数进度。也仍可经 CLI 发起（`python -m usersim bench …`）。
 
