@@ -1,0 +1,23 @@
+# 本机 Hermes agent 整机接入 · deepseek-v4-flash 变体
+# 与 hermes.toml 的差异仅 -m 模型；session resume 约定相同。
+type = "cli"
+prompt_version = "v3"
+description = "本机 Hermes agent（deepseek-v4-flash）"
+
+[cli]
+command = "hermes"
+timeout_sec = 110
+argv = [
+  "chat", "-q", "{message}", "-Q",
+  "--pass-session-id", "--reasoning", "none",
+  "-m", "deepseek/deepseek-v4-flash",
+]
+
+[cli.session]
+mode = "resume"
+id_regex = '^session_id:\s*(\S+)\s*$'
+id_stream = "stderr"
+resume_args = ["--resume", "{session}"]
+
+[cli.output]
+format = "text"

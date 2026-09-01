@@ -1,0 +1,27 @@
+# 本机 OpenClaw agent 整机接入 · deepseek-v4-pro 变体
+# 与 openclaw.toml 的差异仅显式 --model（pro 本就是 openclaw 默认，显式写出以保证可复现）。
+type = "cli"
+prompt_version = "v3"
+description = "本机 OpenClaw agent（deepseek-v4-pro）"
+
+[cli]
+command = "openclaw"
+timeout_sec = 110
+argv = [
+  "agent", "--agent", "main",
+  "--session-key", "{session}",
+  "--json", "--thinking", "off",
+  "--timeout", "{timeout}",
+  "--model", "deepseek/deepseek-v4-pro",
+  "-m", "{message}",
+]
+
+[cli.session]
+mode = "key"
+key = "agent:main:usersim-{uid}"
+
+[cli.output]
+format = "json"
+text_path = "result.payloads.*.text"
+status_path = "status"
+status_ok = "ok"
