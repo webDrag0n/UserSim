@@ -93,3 +93,18 @@ def format_summary(report: dict) -> str:
             f"  喜好误差    = {report['prefs_err_final']:.4f}  爱憎命中 F1 = {report['prefs_tag_f1']:.2f}"
         )
     return "\n".join(lines)
+
+
+if __name__ == "__main__":
+    # 用法：python -m usersim.evaluator.report <run_dir> [<run_dir> ...]
+    # 对历史存档按当前公式重算指标并覆写 report.json / insights.json（0 LLM，确定性）。
+    import sys
+
+    from usersim.config import load_system_config
+
+    if len(sys.argv) < 2:
+        sys.exit("用法：python -m usersim.evaluator.report <run_dir> [<run_dir> ...]")
+    _cfg = load_system_config()
+    for _arg in sys.argv[1:]:
+        print(format_summary(evaluate_run(Path(_arg), _cfg)))
+        print()

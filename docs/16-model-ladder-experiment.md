@@ -85,7 +85,42 @@ discriminability.json + 每格完整 run 存档）。分析时按组聚合 mean�
   教训：批量前后应做余额探针；stub 同种子轨迹完全可复现（重跑 ess 逐位相同），
   反向验证了世界确定性。
 
-## 7. 已知局限
+## 7. 外部 CLI agent 横评（E3 首轮：openclaw / hermes × flash/pro）
+
+设计：4 组 × 5 seed（42-46）× 30 天，20 episode 全并发同时启动
+（`bench_live_20260902T160218`，评分口径 v4；完整性校验通过、0 失败）。
+对照行取自同口径批次：reference 系三行 = `bench_live_20260830T164021`（v4 原生）；
+stub / reference_nomem_pro 两行（标 *）= `bench_live_20260823T175134` 存档的 v4
+重评分（0-LLM 确定性重算）。跨批次只比较相对排名与量级，不解读绝对差。
+
+| 组 | n | benchmark mean±CI95 | ess mean | 带内驻留 | 违约率/百turn | 判定 c/o/d |
+|---|---|---|---|---|---|---|
+| reference_pro | 5 | 71.4 ± 19.8 | 0.044 | 0.34 | 0.0 | 2/2/1 |
+| reference（flash+记忆） | 5 | 67.9 ± 19.4 | 0.051 | 0.27 | 0.0 | 3/1/1 |
+| hermes_flash | 5 | 54.1 ± 34.0 | 0.068 | 0.39 | 7.8 | 1/3/1 |
+| openclaw_pro | 5 | 36.3 ± 42.4 | 0.119 | 0.31 | 1.4 | 2/1/2 |
+| reference_nomem_pro* | 5 | 35.7 ± 8.3 | 0.054 | 0.21 | 0.0 | 0/5/0 |
+| hermes_pro | 5 | 32.2 ± 32.8 | 0.115 | 0.23 | 0.2 | 0/2/3 |
+| reference_nomem | 5 | 23.4 ± 23.9 | 0.114 | 0.12 | 0.0 | 0/3/2 |
+| openclaw_flash | 5 | 18.2 ± 29.6 | 0.149 | 0.16 | 4.6 | 0/1/4 |
+| stub（阴性对照）* | 5 | 1.1 ± 3.1 | 0.237 | 0.00 | 0.0 | 0/0/5 |
+
+- **H6 成立**：reference vs reference_nomem 差 44.5 > MDE=35.4；stub（1.1）
+  显著低于一切正常实现（最低 18.2），量程低端锚定良好。
+- **H7 在 v4 口径下成立**：记忆消融 Δ_benchmark=44.5（>MDE），
+  est_err 终值 0.17 vs 0.45——v3 时代"pro 更抗消融反转"的混杂随违约项
+  移出计分而消失。
+- **CLI 整机接入组全部不高于 reference 主线**：hermes_flash（54.1）与
+  reference（67.9）差 13.8 < MDE，现有功效下不可区分；其余三组落后
+  30–50 分（达到或接近 MDE）。
+- **flash/pro 档差在 CLI harness 上方向不一致**：hermes 是 flash > pro
+  （54.1 vs 32.2），openclaw 是 pro > flash（18.2 vs 36.3），且各对差均
+  未超 MDE（≈52–63）——n=5 下对档差无结论，只说明 CLI 组的组内方差
+  远大于 reference 系（CI 半宽 30–42 vs 19）。
+- **协议纪律是 CLI 组的可区分短板**：违约率 0.2–7.8/百turn（reference 系
+  全 0），且违约集中在长输出场景，与 0823 批次 nomem_pro 的教训一致。
+
+## 8. 已知局限
 
 - 单家族（deepseek）两档，结论不外推跨家族；接入新 provider 时按同矩阵复跑。
 - 用户仪器本身也是 LLM（flash），其噪声是两组共享的背景——组间差仍是有效对比。

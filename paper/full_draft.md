@@ -279,9 +279,21 @@ $$B = \max\big(0,\; 100 - \min(40,\, 200 \cdot e_{ss}) - \min(30,\, 30 \cdot (1 
 
 ### 5.3 RQ2b · E2/E3：Harness 与外部 Agent 横评
 
-固定模型（[参考模型]）与参考 user，横评 5 个 harness/agent。
+固定参考 user，横评 9 个 harness/agent 配置（reference 系 4 个消融/变体 + openclaw、hermes 两个外部 CLI agent 各带 flash/pro 两档模型 + stub 阴性对照）；reference 系与 stub 的驱动模型为 deepseek v4-flash / v4-pro（行内标注）。
 
-**表 2 · Harness 对比**（reference / reference_nomem / openclaw / hermes / stub × score、判定占比、违约率）。
+**表 2 · Harness 对比**（评分口径 v4，30 天 × 5 seed；reference 系为 `bench_live_20260830T164021`，CLI agent 四组为 `bench_live_20260902T160218`，标 * 行为 `bench_live_20260823T175134` 存档的 v4 重评分，跨批次仅比相对排名）：
+
+| Harness / Agent | n | benchmark_score ± 95%CI | 判定 c/o/d | 违约率/百turn |
+|---|---|---|---|---|
+| reference_pro | 5 | 71.4 ± 19.8 | 2/2/1 | 0.0 |
+| reference | 5 | 67.9 ± 19.4 | 3/1/1 | 0.0 |
+| hermes (flash) | 5 | 54.1 ± 34.0 | 1/3/1 | 7.8 |
+| openclaw (pro) | 5 | 36.3 ± 42.4 | 2/1/2 | 1.4 |
+| reference_nomem_pro* | 5 | 35.7 ± 8.3 | 0/5/0 | 0.0 |
+| hermes (pro) | 5 | 32.2 ± 32.8 | 0/2/3 | 0.2 |
+| reference_nomem | 5 | 23.4 ± 23.9 | 0/3/2 | 0.0 |
+| openclaw (flash) | 5 | 18.2 ± 29.6 | 0/1/4 | 4.6 |
+| stub（阴性对照）* | 5 | 1.1 ± 3.1 | 0/0/5 | 0.0 |
 
 **预先注册断言**：
 
@@ -290,7 +302,7 @@ $$B = \max\big(0,\; 100 - \min(40,\, 200 \cdot e_{ss}) - \min(30,\, 30 \cdot (1 
 | H6 | harness 间可分 | 至少一对相邻 harness 的差超过 MDE；stub 显著低于一切正常实现 |
 | H7 | 记忆消融可检出 | reference vs reference_nomem：$\varepsilon_{\mathrm{obs}}$ 终值与 $e_{ss}$ 显著退化（差 > MDE），表明 benchmark 能"评测出记忆能力" |
 
-**结果**（待填）：reference 位于 [·]；外部 agent（openclaw/hermes）落位 [高于/低于] reference。两种结果均有信息量（前者说明参考实现仍有工程红利，后者说明成熟产品已超越参考实现），关键是落位差异须超过 MDE；H7 [成立/不成立]，记忆结构贡献约 [·]% 的总分方差。
+**结果**：H6 成立——reference vs reference_nomem 差 44.5 分 > MDE=35.4，stub（1.1 ± 3.1）显著低于一切正常实现（最低 18.2）。H7 成立——记忆消融在 v4 口径下同时体现为 benchmark 差 44.5（>MDE）与观测误差终值 0.17 → 0.45 的退化。外部 agent 落位低于 reference 主线：hermes (flash)（54.1 ± 34.0）与 reference（67.9 ± 19.4）的差（13.8）未超 MDE，现有功效下不可区分；openclaw 两组与 hermes (pro) 落后 30–50 分，达到或接近 MDE。CLI 整机接入组的可区分短板是协议纪律（违约率 0.2–7.8/百turn，reference 系全 0）与控制稳定性（diverged 占比 20–80%）；flash/pro 档差在两个 CLI harness 上方向相反且均未超 MDE（≈52–63），n=5 下对档差无结论。记忆结构贡献待 §5.6 逐指标差分展开。
 
 **E1 vs E2 一致性**：固定模型换 harness 与固定 harness 换模型产生的排名扰动幅度对比 [·]，用以回答"模型与架构，哪个是长程表现的瓶颈"。
 
